@@ -173,8 +173,8 @@ class DashboardPage(QWidget):
         self.card_cost = stat_card(T("今日花费（人民币）"), "¥0.00")
         self.card_tok = stat_card(T("今日 Tokens"), "0")
         self.card_cache = stat_card(T("缓存命中"), "0")
-        self.card_req = stat_card(T("今日请求"), "0")
-        for c in (self.card_cost, self.card_tok, self.card_cache, self.card_req):
+        self.card_total = stat_card(T("总共花费（人民币）"), "¥0.00")
+        for c in (self.card_cost, self.card_tok, self.card_cache, self.card_total):
             cards.addWidget(c)
         root.addLayout(cards)
 
@@ -223,8 +223,8 @@ class DashboardPage(QWidget):
         self.card_cache.value_label.setText(fmt_tokens(st["cached"]))
         pct = f"{st['cached']/st['prompt']*100:.0f}%" if st["prompt"] else "—"
         self.card_cache.delta_label.setText(lang.fmt_cache_pct(pct))
-        self.card_req.value_label.setText(f"{st['requests']:,}")
-        self.card_req.delta_label.setText(lang.fmt_fail(st["fail"]))
+        self.card_total.value_label.setText(fmt_money(st["total_cost"]))
+        self.card_total.delta_label.setText(lang.fmt_total_reqs(st["total_requests"]))
 
 
 # ================================================================ 模型与档位

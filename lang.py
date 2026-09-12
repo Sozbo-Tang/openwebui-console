@@ -216,3 +216,9 @@ def fmt_fail(n: int) -> str:
     if LANG == "zh":
         return f"失败 {n}"
     return f"{n} failed"
+
+
+def fmt_total_reqs(n: int) -> str:
+    if LANG == "zh":
+        return f"共 {n} 次请求"
+    return f"{n} requests in total"

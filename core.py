@@ -257,9 +257,12 @@ class Store:
             y = self.conn.execute("""
                 SELECT COALESCE(SUM(cost),0) cost FROM requests
                 WHERE substr(ts,1,10)=date('now','-1 day','localtime')""").fetchone()
+            t = self.conn.execute("""
+                SELECT COALESCE(SUM(cost),0) cost, COUNT(*) n FROM requests""").fetchone()
             return {"requests": r["n"], "cost": r["cost"], "prompt": r["pt"],
                     "completion": r["ct"], "cached": r["ca"], "fail": r["fail"],
-                    "yesterday_cost": y["cost"]}
+                    "yesterday_cost": y["cost"],
+                    "total_cost": t["cost"], "total_requests": t["n"]}
 
     def model_stats_today(self) -> list:
         today = today_str()
