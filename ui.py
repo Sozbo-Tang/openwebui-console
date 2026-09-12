@@ -52,8 +52,15 @@ def fmt_tokens(n):
 
 class DownCombo(QComboBox):
     """下拉列表：第一项与显示框对齐，其余选项向下展开（遮住下方内容无妨）。
+    容器透明化让 view 的圆角真正透出（否则容器方形背景盖住圆角）。
     Qt/macOS 会在弹出后自行重定位弹窗，单次移动会被覆盖，
     这里用事件过滤器 + 多拍延迟定位反复压回目标位置。"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        cont = self.view().window()
+        cont.setAttribute(Qt.WA_TranslucentBackground, True)
+        cont.setStyleSheet("background: transparent;")
+
     def showPopup(self):
         super().showPopup()
         popup = self.view().window()
@@ -901,7 +908,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(0)
 
         sidebar = QWidget(); sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(190)
+        sidebar.setFixedWidth(252)
         sv = QVBoxLayout(sidebar); sv.setContentsMargins(0, 12, 0, 0); sv.setSpacing(2)
         brand = QLabel("  " + T("chat2api 控制台"))
         brand.setStyleSheet("font-size:14px;font-weight:700;padding:8px 14px 14px;")
