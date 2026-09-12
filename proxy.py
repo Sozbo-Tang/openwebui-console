@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""proxy.py — 本地 OpenAI 兼容代理（独立线程）：
+转发到 Open WebUI、旁路采集 token 用量、本地 API key 鉴权、思考档位注入。"""
+import json
+import threading
+import time
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import requests
+
+import auth
+from core import Store, calc_cost, resolve_effort
+
+CHUNK_EXCEPTIONS = (requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ConnectionError)
+
+
+def validate_ok(store: Store, creds: dict):
+    return auth.validate_creds(store.get_kv("base_url"), creds) is True
+
+
+class ProxyServer:
+    """持有凭证与状态，在后台线程跑 HTTP 服务。"""
+
+    def __init__(self, store: Store, creds: dict, on_request=None, on_state=None):
+        self.store = store
+        self.creds = creds or {}      # {'token':…, 'api_key':…} 或 {}
+        self.on_request = on_request  # 回调：每条请求记录（UI 实时刷新）
+        self.on_state = on_state      # 回调：状态变化 {'state':…,'detail':…}
+        self.state = "starting"
+        self.state_detail = ""
+        self.models_cache = {"at": 0, "data": None}
+        self._httpd = None
+        self._thread = None
+
+    # ---------- 状态 ----------
+    def set_state(self, state: str, detail: str = ""):
+        self.state, self.state_detail = state, detail
+        if self.on_state:
+            try:
+                self.on_state({"state": state, "detail": detail})
+            except Exception:
+                pass
+
+    def bearer(self) -> str:
+        return self.creds.get("api_key") or self.creds.get("token") or ""
+
+    def update_creds(self, creds: dict):
+        self.creds = creds or {}
+        self.models_cache = {"at": 0, "data": None}
+        if validate_ok(self.store, self.creds):
+            self.set_state("ok", "")
+        else:
+            self.set_state("bad_creds", "凭证缺失或已失效，请在「设置」里重新登录")
+
+    # ---------- 后端请求 ----------
+    def backend(self, method: str, path: str, stream: bool = False, **kw):
+        base = self.store.get_kv("base_url")
+        return requests.request(
+            method, f"{base}{path}",
+            headers={"Authorization": f"Bearer {self.bearer()}",
+                     **kw.pop("headers", {})},
+            timeout=kw.pop("timeout", 600), stream=stream, **kw)
+
+    def list_models(self, force=False):
+        now = time.time()
+        if self.models_cache["data"] is None or force \
+                or now - self.models_cache["at"] > 60:
+            r = self.backend("GET", "/api/models", timeout=20)
+            if r.status_code == 200:
+                self.models_cache = {"at": now, "data": r.json()}
+        data = self.models_cache["data"]
+        if data is None:
+            return None
+        data = dict(data)
+        data["data"] = list(data.get("data", []))
+        # 跟随客户端模式：追加思考档位虚拟模型
+        if self.store.get_kv("effort_mode") == "follow_client":
+            for base in self.store.effort_base_models():
+                src = next((m for m in data["data"] if m.get("id") == base), None)
+                for suffix in ("Fast", "Low", "Medium", "High"):
+                    vid = f"{base}-{suffix}"
+                    if any(m.get("id") == vid for m in data["data"]):
+                        continue
+                    m = dict(src) if src else {}
+                    m["id"] = vid
+                    m["name"] = vid
+                    data["data"].append(m)
+        return data
+
+    # ---------- 生命周期 ----------
+    def start(self):
+        host = self.store.get_kv("host")
+        port = int(self.store.get_kv("port"))
+        self._httpd = ThreadingHTTPServer((host, port), Handler)
+        self._httpd.proxy = self
+        self._thread = threading.Thread(target=self._httpd.serve_forever,
+                                        daemon=True, name="chat2api-proxy")
+        self._thread.start()
+        if validate_ok(self.store, self.creds):
+            self.set_state("ok", "")
+        elif self.creds:
+            self.set_state("bad_creds", "凭证已失效，请在「设置」里重新登录")
+        else:
+            self.set_state("no_creds", "尚未登录，请在「设置」里重新登录")
+
+    def stop(self):
+        if self._httpd:
+            threading.Thread(target=self._httpd.shutdown, daemon=True).start()
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    # ---------- 工具 ----------
+    def _json(self, code: int, obj: dict):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _error(self, code: int, message: str, detail=None):
+        self._json(code, {"error": {"message": message,
+                                    "type": "chat2api_error", "detail": detail}})
+
+    def _read_body(self) -> dict:
+        n = int(self.headers.get("Content-Length") or 0)
+        if n == 0:
+            return {}
+        try:
+            return json.loads(self.rfile.read(n))
+        except Exception:
+            return {}
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, fmt, *args):
+        pass  # 访问日志静默（UI 里有记账）
+
+    # ---------- 本地 key 鉴权 ----------
+    def _auth_key(self):
+        """返回 (key_row|None, ok)。本地没有任何 key 时开放访问（记为“无 key”）。"""
+        header = self.headers.get("Authorization") or ""
+        bearer = header[7:].strip() if header.startswith("Bearer ") else ""
+        store: Store = self.server.proxy.store
+        with store.lock:
+            keys = store.conn.execute(
+                "SELECT * FROM api_keys WHERE revoked=0").fetchall()
+        if not keys:
+            return None, True
+        for k in keys:
+            if bearer and bearer == k["key"]:
+                return k, True
+        return None, False
+
+    # ---------- GET ----------
+    def do_GET(self):
+        path = urllib.parse.urlparse(self.path).path
+        px: ProxyServer = self.server.proxy
+
+        if path in ("/", "/health"):
+            self._json(200, {"status": "ok", "backend": px.store.get_kv("base_url"),
+                             "state": px.state})
+        elif path == "/v1/version":
+            try:
+                r = requests.get(f"{px.store.get_kv('base_url')}/api/version", timeout=15)
+                self._json(200, {"openwebui": r.json() if r.status_code == 200 else None,
+                                 "chat2api_gui": "1.0.0"})
+            except Exception as e:
+                self._error(502, "后端不可达", str(e))
+        elif path in ("/v1/models", "/api/models"):
+            models = px.list_models(force=True)
+            if models is None:
+                self._error(502, "获取模型列表失败", "后端不可达或凭证失效")
+                return
+            self._json(200, models)
+        else:
+            self._error(404, f"未知路径: {path}")
+
+    # ---------- POST ----------
+    def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path in ("/v1/chat/completions", "/api/chat/completions"):
+            self._chat()
+        else:
+            self._error(404, f"未知路径: {path}")
+
+    # ---------- 聊天主流程 ----------
+    def _chat(self):
+        px: ProxyServer = self.server.proxy
+        store: Store = px.store
+        t0 = time.monotonic()
+
+        key_row, ok = self._auth_key()
+        if not ok:
+            self._record(px, None, "", "", None, status=401,
+                         error="无效的本地 API key")
+            self._error(401, "Invalid API key",
+                        "请在客户端填入本程序签发的 sk- 密钥")
+            return
+
+        body = self._read_body()
+        if not body.get("messages"):
+            self._error(400, "请求体缺少 messages 字段")
+            return
+
+        requested = body.get("model") or ""
+        # 1) 虚拟模型 → 基础模型 + 档位（跟随客户端模式）
+        base, effort = resolve_effort(requested, store.effort_base_models())
+        # 2) 强制档位模式：用 UI 里给该模型设置的档位覆盖
+        if store.get_kv("effort_mode") == "force":
+            effort = store.get_level(base or requested)  # None = 后端默认
+        real_model = base if base else requested
+
+        fwd = dict(body)
+        fwd["model"] = real_model
+        if effort:
+            fwd["reasoning_effort"] = effort
+        stream = bool(fwd.get("stream"))
+        if stream and not fwd.get("stream_options"):
+            fwd["stream_options"] = {"include_usage": True}
+
+        try:
+            r = px.backend("POST", "/api/chat/completions", stream=stream, json=fwd)
+        except requests.RequestException as e:
+            self._record(px, key_row, requested, real_model, effort, stream=stream,
+                         status=0, error=f"连接后端失败: {type(e).__name__}")
+            px.set_state("backend_down", f"后端连接失败: {type(e).__name__}")
+            self._error(502, "后端不可达", str(e)[:200])
+            return
+
+        if r.status_code == 401:
+            r.close()
+            self._record(px, key_row, requested, real_model, effort, stream=stream,
+                         status=401, error="上游 401：凭证失效，请在设置里重新登录")
+            px.set_state("bad_creds", "凭证已失效，请在「设置」里重新登录")
+            self._error(502, "凭证失效", "上游返回 401，请在程序「设置」页重新登录")
+            return
+        if r.status_code != 200:
+            detail = r.text[:300]
+            r.close()
+            self._record(px, key_row, requested, real_model, effort, stream=stream,
+                         status=r.status_code, error=f"上游 HTTP {r.status_code}: {detail}")
+            self._error(502, "上游请求失败", f"HTTP {r.status_code}: {detail}")
+            return
+
+        if not stream:
+            try:
+                data = r.json()
+            except Exception:
+                r.close()
+                self._record(px, key_row, requested, real_model, effort,
+                             status=200, error="上游响应不是合法 JSON")
+                self._error(502, "上游响应异常", "不是合法 JSON")
+                return
+            r.close()
+            u = data.get("usage") or {}
+            self._record(px, key_row, requested, real_model, effort,
+                         prompt=u.get("prompt_tokens") or 0,
+                         cached=((u.get("prompt_tokens_details") or {})
+                                 .get("cached_tokens") or 0),
+                         completion=u.get("completion_tokens") or 0,
+                         reasoning=((u.get("completion_tokens_details") or {})
+                                    .get("reasoning_tokens") or 0),
+                         status=200,
+                         duration_ms=int((time.monotonic() - t0) * 1000))
+            self._json(200, data)
+            return
+
+        # ---- 流式：SSE 透传 + 旁路解析 usage ----
+        # 两个关键点（踩过坑）：事件必须用空行 \n\n 分隔；[DONE] 后立即停止
+        # 读取并关闭下游连接（上游可能 keep-alive 不关，客户端会等 EOF 挂住）。
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        usage = {}
+        broken = None
+        try:
+            for raw in r.iter_lines(decode_unicode=True):
+                if not raw:
+                    continue
+                self.wfile.write((raw + "\n\n").encode("utf-8"))
+                self.wfile.flush()
+                if raw.startswith("data: "):
+                    payload = raw[6:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        d = json.loads(payload)
+                        if d.get("usage"):
+                            usage = d["usage"]
+                    except Exception:
+                        pass
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # 客户端断开
+        except CHUNK_EXCEPTIONS as e:
+            broken = f"上游断流: {type(e).__name__}"
+        finally:
+            r.close()
+            self.close_connection = True
+
+        u = usage or {}
+        self._record(px, key_row, requested, real_model, effort,
+                     prompt=u.get("prompt_tokens") or 0,
+                     cached=((u.get("prompt_tokens_details") or {})
+                             .get("cached_tokens") or 0),
+                     completion=u.get("completion_tokens") or 0,
+                     reasoning=((u.get("completion_tokens_details") or {})
+                                .get("reasoning_tokens") or 0),
+                     status=200,
+                     duration_ms=int((time.monotonic() - t0) * 1000),
+                     stream=1, error=broken)
+
+    # ---------- 记账 ----------
+    def _record(self, px: ProxyServer, key_row, model: str, real_model: str,
+                effort, prompt=0, cached=0, completion=0, reasoning=0,
+                status=0, duration_ms=0, stream=0, error=None):
+        prices = px.store.get_prices()
+        cost, known = calc_cost(prices, real_model, prompt, cached, completion)
+        rec = {
+            "ts": None,  # Store 里取当前时间
+            "key_id": key_row["id"] if key_row else None,
+            "model": model, "real_model": real_model, "effort": effort,
+            "prompt_tokens": prompt, "cached_tokens": cached,
+            "completion_tokens": completion, "reasoning_tokens": reasoning,
+            "cost": cost, "cost_known": 1 if known else 0,
+            "status": status, "duration_ms": duration_ms,
+            "stream": stream, "error": error,
+        }
+        px.store.log_request(**rec)
+        rec["ts"] = None
+        rec["key_name"] = key_row["name"] if key_row else "（无 key）"
+        if px.on_request:
+            try:
+                px.on_request(rec)
+            except Exception:
+                pass

@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+token.json
+.chrome-profile/
+chat2api.db
+*.log
+.DS_Store
