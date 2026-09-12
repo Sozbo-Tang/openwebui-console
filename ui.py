@@ -6,7 +6,8 @@ import csv
 import os
 
 from PySide6.QtCore import Qt, QTimer, Signal, QObject, QEvent, QPoint
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QRect
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QListWidget, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem,
@@ -507,17 +508,21 @@ class SettingsPage(QWidget):
         root.addLayout(look)
 
         bg_row = QHBoxLayout(); bg_row.setSpacing(10)
-        bg_row.addWidget(QLabel(T("背景图片（JPEG，铺满界面）")))
-        self.bg_path = QLineEdit(self.store.get_kv("bg_image") or "")
+        bg_row.addWidget(QLabel(T("背景图片（JPEG，框选区域）")))
+        self.bg_path = QLineEdit(self.store.get_kv("bg_image_src") or "")
+        self.bg_path.setReadOnly(True)
         bg_row.addWidget(self.bg_path, 1)
         b_pick = QPushButton(T("选择 JPEG 图片…")); b_pick.setProperty("ghost", True)
         b_pick.clicked.connect(self.pick_bg)
         bg_row.addWidget(b_pick)
+        b_frame = QPushButton(T("重新框选区域")); b_frame.setProperty("ghost", True)
+        b_frame.clicked.connect(self.frame_region)
+        bg_row.addWidget(b_frame)
         b_clear = QPushButton(T("清除背景图")); b_clear.setProperty("ghost", True)
         b_clear.clicked.connect(self.clear_bg)
         bg_row.addWidget(b_clear)
         root.addLayout(bg_row)
-        bg_hint = QLabel(T("背景图会铺满整个界面并叠加半透明遮罩以保证文字可读"))
+        bg_hint = QLabel(T("选好图片后在弹窗里拖拽框选要显示的区域，背景会铺满界面并叠加半透明遮罩保证文字可读"))
         bg_hint.setObjectName("PageSub")
         root.addWidget(bg_hint)
 
@@ -686,18 +691,34 @@ class SettingsPage(QWidget):
 
     def pick_bg(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, T("背景图片（JPEG，铺满界面）"), "", "JPEG (*.jpg *.jpeg)")
+            self, T("选择背景图片"), "", "JPEG (*.jpg *.jpeg)")
         if not path:
             return
         if not is_jpeg(path):
             QMessageBox.warning(self, T("已保存"), "不是有效的 JPEG 文件（仅支持 JPEG 格式）")
             return
-        self.store.set_kv("bg_image", path)
+        self.store.set_kv("bg_image_src", path)
         self.bg_path.setText(path)
-        self._style()
+        self.frame_region()
+
+    def frame_region(self):
+        """在原图上拖拽框选背景显示区域，裁剪后作为背景。"""
+        src = self.store.get_kv("bg_image_src") or ""
+        if not src or not os.path.exists(src):
+            QMessageBox.information(self, T("背景图片"),
+                                    T("请先选择一张 JPEG 图片"))
+            return
+        dlg = BgRegionDialog(src, self)
+        if dlg.exec() == QDialog.Accepted and dlg.sel_rect is not None:
+            out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "bg_selected.png")
+            dlg.cropped_pixmap().save(out, "PNG")
+            self.store.set_kv("bg_image", out)
+            self._style()
 
     def clear_bg(self):
         self.store.set_kv("bg_image", "")
+        self.store.set_kv("bg_image_src", "")
         self.bg_path.setText("")
         self._style()
 
@@ -733,6 +754,105 @@ def live_set(proxy):
         return set()
     return {m.get("id") for m in ms.get("data", [])
             if "-" not in m.get("id", "") or m["id"].rsplit("-", 1)[1] not in EFFORT_LEVELS}
+
+
+# ================================================================ 背景框选
+class _BgCanvas(QWidget):
+    """图片画布：按住拖拽圈选区域，选区外半透明变暗。"""
+    def __init__(self, disp_pixmap, dialog):
+        super().__init__()
+        self.disp = disp_pixmap
+        self.dialog = dialog
+        self.origin = None
+        self.sel_rect = None
+        self.setMouseTracking(True)
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.origin = ev.position().toPoint()
+            self.sel_rect = QRect(self.origin, self.origin)
+            self.dialog.sel_rect = None
+            self.dialog.ok.setEnabled(False)
+            self.update()
+
+    def mouseMoveEvent(self, ev):
+        if self.origin is not None:
+            self.sel_rect = QRect(self.origin, ev.position().toPoint()).normalized()
+            self.update()
+
+    def mouseReleaseEvent(self, ev):
+        if self.origin is not None:
+            self.sel_rect = QRect(self.origin, ev.position().toPoint()).normalized()
+            self.origin = None
+            self.dialog.sel_rect = self.sel_rect
+            self.dialog.check_selection()
+            self.update()
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.drawPixmap(0, 0, self.disp)
+        r = self.sel_rect
+        if r and r.width() > 2 and r.height() > 2:
+            m = QColor(0, 0, 0, 110)
+            p.fillRect(0, 0, self.width(), r.top(), m)
+            p.fillRect(0, r.bottom() + 1, self.width(),
+                       self.height() - r.bottom() - 1, m)
+            p.fillRect(0, r.top(), r.left(), r.height(), m)
+            p.fillRect(r.right() + 1, r.top(),
+                       self.width() - r.right() - 1, r.height(), m)
+            p.setPen(QPen(QColor("#7b5ce0"), 2))
+            p.drawRect(r)
+
+
+class BgRegionDialog(QDialog):
+    """框选背景显示区域：在原图缩略图上拖拽圈选，确认后按比例裁剪原图。"""
+    def __init__(self, src_path: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(T("框选背景显示区域"))
+        self.src = QPixmap(src_path)
+        self.scale = min(1040 / max(self.src.width(), 1),
+                         560 / max(self.src.height(), 1), 1.0)
+        self.disp = self.src.scaled(
+            max(1, int(self.src.width() * self.scale)),
+            max(1, int(self.src.height() * self.scale)),
+            Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.sel_rect = None
+        self.ok = None
+
+        v = QVBoxLayout(self)
+        hint = QLabel(T("在图片上按住鼠标拖拽，圈选要做背景的区域"))
+        hint.setObjectName("PageSub"); hint.setAlignment(Qt.AlignCenter)
+        v.addWidget(hint)
+        self.canvas = _BgCanvas(self.disp, self)
+        v.addWidget(self.canvas, 1)
+        btns = QHBoxLayout(); btns.setSpacing(10)
+        btns.addStretch(1)
+        full = QPushButton(T("使用整张图片")); full.setProperty("ghost", True)
+        full.clicked.connect(self.use_full)
+        cancel = QPushButton(T("取消")); cancel.setProperty("ghost", True)
+        cancel.clicked.connect(self.reject)
+        self.ok = QPushButton(T("使用所选区域")); self.ok.setEnabled(False)
+        self.ok.clicked.connect(self.accept)
+        btns.addWidget(full); btns.addWidget(cancel); btns.addWidget(self.ok)
+        v.addLayout(btns)
+        self.resize(max(640, self.disp.width() + 40),
+                    self.disp.height() + 130)
+
+    def check_selection(self):
+        r = self.sel_rect
+        if r and r.width() >= 8 and r.height() >= 8:
+            self.ok.setEnabled(True)
+
+    def use_full(self):
+        self.sel_rect = QRect(0, 0, self.disp.width(), self.disp.height())
+        self.accept()
+
+    def cropped_pixmap(self) -> QPixmap:
+        r = self.sel_rect
+        ox, oy = int(r.x() / self.scale), int(r.y() / self.scale)
+        ow = max(1, int(r.width() / self.scale))
+        oh = max(1, int(r.height() / self.scale))
+        return self.src.copy(QRect(ox, oy, ow, oh))
 
 
 # ================================================================ 背景容器

@@ -5,3 +5,4 @@ token.json
 chat2api.db
 *.log
 .DS_Store
+bg_selected.png
