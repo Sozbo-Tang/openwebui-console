@@ -34,6 +34,11 @@ class ProxyServer:
         self.models_cache = {"at": 0, "data": None}
         self._httpd = None
         self._thread = None
+        # 上游连接池：复用 TCP/TLS 连接，避免每次请求重新握手
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     # ---------- 状态 ----------
     def set_state(self, state: str, detail: str = ""):
@@ -58,11 +63,14 @@ class ProxyServer:
     # ---------- 后端请求 ----------
     def backend(self, method: str, path: str, stream: bool = False, **kw):
         base = self.store.get_kv("base_url")
-        return requests.request(
+        timeout = kw.pop("timeout", 600)
+        if isinstance(timeout, int):
+            timeout = (10, timeout)
+        return self.session.request(
             method, f"{base}{path}",
             headers={"Authorization": f"Bearer {self.bearer()}",
                      **kw.pop("headers", {})},
-            timeout=kw.pop("timeout", 600), stream=stream, **kw)
+            timeout=timeout, stream=stream, **kw)
 
     def list_models(self, force=False):
         now = time.time()
@@ -99,12 +107,26 @@ class ProxyServer:
         self._thread = threading.Thread(target=self._httpd.serve_forever,
                                         daemon=True, name="chat2api-proxy")
         self._thread.start()
+        threading.Thread(target=self._warm_up, daemon=True,
+                         name="chat2api-warmup").start()
         if validate_ok(self.store, self.creds):
             self.set_state("ok", "")
         elif self.creds:
             self.set_state("bad_creds", "凭证已失效，请在「设置」里重新登录")
         else:
             self.set_state("no_creds", "尚未登录，请在「设置」里重新登录")
+
+    def _warm_up(self):
+        """提前完成 DNS/TLS 握手，保持连接池热连接；首个聊天请求省去握手耗时。"""
+        for _ in range(5):
+            if self.creds:
+                break
+            time.sleep(0.3)
+        try:
+            self.session.get(f"{self.store.get_kv('base_url')}/api/version",
+                             timeout=(10, 15))
+        except Exception:
+            pass
 
     def stop(self):
         if self._httpd:
@@ -113,6 +135,7 @@ class ProxyServer:
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    disable_nagle_algorithm = True   # SSE 小块立即发送，减少微延迟
 
     # ---------- 工具 ----------
     def _json(self, code: int, obj: dict):
@@ -180,7 +203,8 @@ class Handler(BaseHTTPRequestHandler):
                              "state": px.state})
         elif path == "/v1/version":
             try:
-                r = requests.get(f"{px.store.get_kv('base_url')}/api/version", timeout=15)
+                r = px.session.get(f"{px.store.get_kv('base_url')}/api/version",
+                                   timeout=(10, 15))
                 self._json(200, {"openwebui": r.json() if r.status_code == 200 else None,
                                  "chat2api_gui": "1.0.0"})
             except Exception as e:
@@ -306,7 +330,7 @@ class Handler(BaseHTTPRequestHandler):
                                stream=True, json=fwd)
             except requests.RequestException as e:
                 if not client_started and attempts < 3:
-                    time.sleep(1)
+                    time.sleep(0.3)
                     continue
                 self._record(px, key_row, requested, real_model, effort,
                              stream=1, status=0,
@@ -326,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
                 detail = r.text[:300]
                 r.close()
                 if not client_started and attempts < 3:
-                    time.sleep(1)
+                    time.sleep(0.3)
                     continue
                 self._record(px, key_row, requested, real_model, effort,
                              stream=1, status=r.status_code,
@@ -374,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
                             f"{broken}；已重试 {attempts} 次（大上下文时上游约 50s "
                             "无输出会被网关掐断，建议减少上下文或降低思考档位）")
                 return
-            time.sleep(1)
+            time.sleep(0.3)
         if not client_started:
             # 重试耗尽前的正常空流（极罕见）：给客户端一个合法的空 SSE 结束
             self.send_response(200)
