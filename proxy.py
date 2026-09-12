@@ -121,10 +121,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        if getattr(self, "close_connection", False):
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
     def _error(self, code: int, message: str, detail=None):
+        # 错误响应必须关闭连接：请求体可能未被读取（如未知路径 404），
+        # 若 keep-alive 复用，残留的 body 字节会被下一条请求误当请求行，
+        # 产生 "501 Unsupported method ({json}POST)" 这类错位错误。
+        self.close_connection = True   # 先置标记，_json 据此发送 Connection: close
         self._json(code, {"error": {"message": message,
                                     "type": "chat2api_error", "detail": detail}})
 
