@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Credentials & sessions — DO NOT commit
+token.json
+.chrome-profile/
+.env
+
+# Logs
+*.log
+
+# Virtualenv
+.venv/
+venv/
+
+# macOS
+.DS_Store
