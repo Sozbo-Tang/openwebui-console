@@ -27,7 +27,7 @@ STATE_TEXT = {
     "backend_down": ("● 后端不可达", "#f2777a"),
     "starting": ("● 启动中…", "#f5bd60"),
 }
-LEVEL_LABELS = {"": T("默认（后端）"), "low": "low", "medium": "medium",
+LEVEL_LABELS = {"": "默认（后端）", "low": "low", "medium": "medium",
                 "high": "high", "xhigh": "xhigh", "max": "max"}
 LEVEL_ORDER = ["", "low", "medium", "high", "xhigh", "max"]
 
@@ -250,7 +250,7 @@ class ModelsPage(QWidget):
                                                   "g" if is_live else "o"))
             combo = QComboBox()
             for lv in LEVEL_ORDER:
-                combo.addItem(LEVEL_LABELS[lv], lv)
+                combo.addItem(T(LEVEL_LABELS[lv]), lv)
             cur = self.store.get_level(mid) or ""
             combo.setCurrentIndex(LEVEL_ORDER.index(cur) if cur in LEVEL_ORDER else 0)
             combo.currentIndexChanged.connect(
@@ -653,8 +653,12 @@ class SettingsPage(QWidget):
         self._style()
 
     def change_language(self, i):
-        self.store.set_kv("language", self.lang_combo.currentData() or "zh")
-        QMessageBox.information(self, T("已保存"), T("重启程序后生效"))
+        code = self.lang_combo.currentData() or "zh"
+        self.store.set_kv("language", code)
+        lang.LANG = code
+        win = self.window()
+        if hasattr(win, "retranslate"):
+            win.retranslate()
 
     def pick_bg(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -799,6 +803,35 @@ class MainWindow(QMainWindow):
         self.central.set_mask(p["bg"])
         self.central.set_image(bg)
         self.central.update()
+
+    def retranslate(self):
+        """语言切换即时生效：重建全部页面与导航文案。"""
+        cur = max(self.stack.currentIndex(), 0)
+        while self.stack.count():
+            w = self.stack.widget(0)
+            self.stack.removeWidget(w)
+            w.deleteLater()
+        self.setWindowTitle(T("chat2api 控制台"))
+        row = self.nav.currentRow()
+        self.nav.blockSignals(True)
+        self.nav.clear()
+        for icon, label in (("◧", T("仪表盘")), ("▤", T("模型与思考档位")),
+                            ("⌘", T("API 密钥")), ("☰", T("用量明细")),
+                            ("⚙", T("设置"))):
+            self.nav.addItem(f"{icon}  {label}")
+        self.nav.setCurrentRow(row if row >= 0 else 0)
+        self.nav.blockSignals(False)
+        self.pages = [
+            DashboardPage(self.store, self.proxy),
+            ModelsPage(self.store, self.proxy),
+            KeysPage(self.store, self.proxy),
+            UsagePage(self.store, self.proxy),
+            SettingsPage(self.store, self.proxy, on_style_change=self.apply_style),
+        ]
+        for pg in self.pages:
+            self.stack.addWidget(pg)
+        self.stack.setCurrentIndex(cur)
+        self.apply_style()
 
     def switch_page(self, row):
         self.stack.setCurrentIndex(row)
