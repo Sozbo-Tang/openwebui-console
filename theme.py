@@ -200,6 +200,13 @@ def qss_for(name: str, text_color: str = "", bg_image: bool = False) -> str:
         p.update(TEXT_OVERRIDES[text_color])
     if bg_image:
         # 遮罩承担主要可读性（paint 时画 bg 色 ~55% alpha）；
-        # 卡片 72%、表格 90%、输入框 90% —— 边缘和空隙透出背景图
-        return build_qss(p, card_alpha=184, table_alpha=230, input_alpha=230)
+        # 卡片 72%、表格 90%、输入框 90% —— 边缘和空隙透出背景图。
+        # 关键：页面容器/堆栈/侧边栏必须透明，否则它们画不透明主题色把背景图盖住。
+        qss = build_qss(p, card_alpha=184, table_alpha=230, input_alpha=230)
+        qss += """
+QStackedWidget { background: transparent; }
+QWidget#PageRoot { background: transparent; }
+QWidget#Sidebar { background: transparent; }
+"""
+        return qss
     return build_qss(p)

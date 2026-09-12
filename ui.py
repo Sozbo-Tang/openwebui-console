@@ -49,6 +49,15 @@ def fmt_tokens(n):
     return str(n)
 
 
+class DownCombo(QComboBox):
+    """下拉列表始终从控件下方弹出（Qt 在空间不足时会向上翻）。"""
+    def showPopup(self):
+        super().showPopup()
+        popup = self.view().window()
+        if popup:
+            popup.move(self.mapToGlobal(QPoint(0, self.height() + 2)))
+
+
 def pill(text, kind="g"):
     name = {"g": "PillOk", "o": "PillWarn", "r": "PillBad", "b": "PillInfo"}[kind]
     lab = QLabel(text)
@@ -112,6 +121,7 @@ class DashboardPage(QWidget):
     def __init__(self, store, proxy, parent=None):
         super().__init__(parent)
         self.store, self.proxy = store, proxy
+        self.setObjectName("PageRoot")
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(12)
@@ -183,6 +193,7 @@ class ModelsPage(QWidget):
     def __init__(self, store, proxy, parent=None):
         super().__init__(parent)
         self.store, self.proxy = store, proxy
+        self.setObjectName("PageRoot")
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(12)
@@ -248,7 +259,7 @@ class ModelsPage(QWidget):
             is_live = mid in live
             self.table.setCellWidget(row, 1, pill(T("可用") if is_live else T("已下线"),
                                                   "g" if is_live else "o"))
-            combo = QComboBox()
+            combo = DownCombo()
             for lv in LEVEL_ORDER:
                 combo.addItem(T(LEVEL_LABELS[lv]), lv)
             cur = self.store.get_level(mid) or ""
@@ -275,6 +286,7 @@ class KeysPage(QWidget):
     def __init__(self, store, proxy, parent=None):
         super().__init__(parent)
         self.store, self.proxy = store, proxy
+        self.setObjectName("PageRoot")
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(12)
@@ -352,6 +364,7 @@ class UsagePage(QWidget):
     def __init__(self, store, proxy, parent=None):
         super().__init__(parent)
         self.store, self.proxy = store, proxy
+        self.setObjectName("PageRoot")
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(12)
@@ -371,11 +384,11 @@ class UsagePage(QWidget):
 
         filters = QHBoxLayout(); filters.setSpacing(10)
         filters.addWidget(QLabel("API Key"))
-        self.key_filter = QComboBox(); self.key_filter.setMinimumWidth(140)
+        self.key_filter = DownCombo(); self.key_filter.setMinimumWidth(140)
         self.key_filter.currentIndexChanged.connect(self.refresh)
         filters.addWidget(self.key_filter)
         filters.addWidget(QLabel(T("模型")))
-        self.model_filter = QComboBox(); self.model_filter.setMinimumWidth(200)
+        self.model_filter = DownCombo(); self.model_filter.setMinimumWidth(200)
         self.model_filter.currentIndexChanged.connect(self.refresh)
         filters.addWidget(self.model_filter)
         filters.addStretch(1)
@@ -437,6 +450,7 @@ class SettingsPage(QWidget):
         super().__init__(parent)
         self.store, self.proxy = store, proxy
         self.on_style_change = on_style_change
+        self.setObjectName("PageRoot")
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(10)
@@ -449,14 +463,14 @@ class SettingsPage(QWidget):
         # ---- 界面：配色 / 语言 / 字体颜色 / 背景图 ----
         look = QHBoxLayout(); look.setSpacing(10)
         look.addWidget(QLabel(T("UI 配色风格")))
-        self.theme_combo = QComboBox()
+        self.theme_combo = DownCombo()
         for n in theme.names():
             self.theme_combo.addItem(n)
         self.theme_combo.setCurrentText(self.store.get_kv("ui_theme") or theme.DEFAULT_THEME)
         self.theme_combo.currentTextChanged.connect(self.change_theme)
         look.addWidget(self.theme_combo)
         look.addWidget(QLabel(T("界面语言")))
-        self.lang_combo = QComboBox()
+        self.lang_combo = DownCombo()
         for code in ("zh", "en"):
             self.lang_combo.addItem(lang.LANGUAGE_LABELS[code], code)
         cur_lang = self.store.get_kv("language") or "zh"
@@ -464,7 +478,7 @@ class SettingsPage(QWidget):
         self.lang_combo.currentIndexChanged.connect(self.change_language)
         look.addWidget(self.lang_combo)
         look.addWidget(QLabel(T("字体颜色")))
-        self.text_combo = QComboBox()
+        self.text_combo = DownCombo()
         self.text_combo.addItem(T("白色"), "white")
         self.text_combo.addItem(T("黑色"), "black")
         cur_tc = self.store.get_kv("text_color") or "white"
@@ -500,10 +514,6 @@ class SettingsPage(QWidget):
         root.addWidget(self.price_table, 1)
 
         row = QHBoxLayout(); row.setSpacing(10)
-        row.addWidget(QLabel(T("美元汇率（参考价换算用）")))
-        self.rate = QLineEdit(self.store.get_kv("exchange_rate"))
-        self.rate.setFixedWidth(80)
-        row.addWidget(self.rate)
         row.addStretch(1)
         b_add = QPushButton(T("＋ 添加自定义模型")); b_add.setProperty("ghost", True)
         b_add.clicked.connect(self.add_row)
@@ -598,10 +608,7 @@ class SettingsPage(QWidget):
             self.price_table.cellWidget(row, col).setText("")
 
     def apply_reference(self):
-        try:
-            rate = float(self.rate.text() or "7.15")
-        except ValueError:
-            rate = 7.15
+        rate = float(self.store.get_kv("exchange_rate") or 7.15)
         for model, (i, ca, o, note) in REFERENCE_PRICES_USD.items():
             found = False
             for r in range(self.price_table.rowCount()):
@@ -629,7 +636,6 @@ class SettingsPage(QWidget):
                 self.store.delete_price(model)
             else:
                 self.store.set_price(model, inp, ca, out, note)
-        self.store.set_kv("exchange_rate", self.rate.text().strip() or "7.15")
         QMessageBox.information(self, T("已保存"), T("价格表已保存，立即对新请求生效。"))
 
     # ---------- 通用 ----------
