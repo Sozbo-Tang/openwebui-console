@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 import auth
+import theme
 from core import EFFORT_LEVELS, REFERENCE_PRICES_USD, today_str
 
 STATE_TEXT = {
@@ -103,7 +104,8 @@ def readonly_item(text, mono=False):
 
 # ================================================================ 仪表盘
 class DashboardPage(QWidget):
-    def __init__(self, store, proxy, bridge, parent=None):
+    """今日用量卡片 + 后端连接状态面板。"""
+    def __init__(self, store, proxy, parent=None):
         super().__init__(parent)
         self.store, self.proxy = store, proxy
         root = QVBoxLayout(self)
@@ -111,7 +113,7 @@ class DashboardPage(QWidget):
         root.setSpacing(12)
 
         title = QLabel("仪表盘"); title.setObjectName("PageTitle")
-        sub = QLabel("数据来源：本地代理拦截的每一次请求 · 实时更新")
+        sub = QLabel("今日用量与后端连接状态 · 实时更新")
         sub.setObjectName("PageSub")
         root.addWidget(title); root.addWidget(sub)
 
@@ -124,58 +126,48 @@ class DashboardPage(QWidget):
             cards.addWidget(c)
         root.addLayout(cards)
 
-        body = QHBoxLayout(); body.setSpacing(12)
-        left = QVBoxLayout()
-        left.addWidget(QLabel("实时请求（最近 50 条）"))
-        self.req_table = make_table(
-            ["时间", "Key", "模型", "档位", "输入", "缓存", "输出", "费用", "状态"],
-            stretch_cols=[1])
-        left.addWidget(self.req_table)
-        right = QVBoxLayout()
-        right.addWidget(QLabel("按模型花费（今日）"))
-        self.model_table = make_table(["模型", "请求", "Tokens", "费用"],
-                                      stretch_cols=[0])
-        right.addWidget(self.model_table)
-        body.addLayout(left, 3); body.addLayout(right, 2)
-        root.addLayout(body, 1)
+        panel = QFrame(); panel.setObjectName("StatePanel")
+        pv = QVBoxLayout(panel); pv.setContentsMargins(18, 16, 18, 16); pv.setSpacing(7)
+        self.state_label = QLabel()
+        pv.addWidget(self.state_label)
+        self.info_label = QLabel(); self.info_label.setObjectName("PageSub")
+        pv.addWidget(self.info_label)
+        self.detail_label = QLabel(); self.detail_label.setWordWrap(True)
+        pv.addWidget(self.detail_label)
+        root.addWidget(panel)
+        root.addStretch(1)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(2000)
-        bridge.requestLogged.connect(self.on_live)
         self.refresh()
-
-    def on_live(self, rec):
-        self.prepend_row(rec)
-        st = self.store.today_stats()
-        self.update_cards(st)
 
     def refresh(self):
         st = self.store.today_stats()
         self.update_cards(st)
-        rows = self.store.recent_requests(50)
-        self.req_table.setRowCount(0)
-        for r in reversed(rows):
-            self.append_row(r, top=False)
-        self.model_table.setRowCount(0)
-        prices = self.store.get_prices()
-        for m in self.store.model_stats_today():
-            row = self.model_table.rowCount()
-            self.model_table.insertRow(row)
-            known = m["m"] in prices and prices[m["m"]]["input"] is not None
-            cost = fmt_money(m["cost"]) if known else "—（未设价）"
-            for col, val in enumerate([m["m"], str(m["n"]),
-                                       fmt_tokens((m["pt"] or 0) + (m["ct"] or 0)),
-                                       cost]):
-                self.model_table.setItem(row, col, readonly_item(val, col == 3))
+        px = self.proxy
+        state = px.state if px else "starting"
+        detail = (px.state_detail or "") if px else ""
+        text, color = STATE_TEXT.get(state, STATE_TEXT["starting"])
+        self.state_label.setText(
+            f"<span style='color:{color};font-size:15px;font-weight:700'>{text}</span>")
+        cache = (px.models_cache.get("data") if px else None)
+        n_models = len(cache.get("data", [])) if cache else None
+        url = px.store.get_kv("base_url") if px else "—"
+        port = px.store.get_kv("port") if px else "—"
+        self.info_label.setText(
+            f"后端　{url}　·　监听　127.0.0.1:{port}　·　"
+            f"可用模型　{n_models if n_models is not None else '—'}")
+        self.detail_label.setText(detail)
+        self.detail_label.setStyleSheet(
+            f"color:{color};font-size:12px;")
+        self.detail_label.setVisible(bool(detail))
 
     def update_cards(self, st):
         self.card_cost.value_label.setText(fmt_money(st["cost"]))
         diff = st["cost"] - st["yesterday_cost"]
-        dl = self.card_cost.delta_label
-        if dl is not None:
-            arrow = "↑" if diff >= 0 else "↓"
-            dl.setText(f"{arrow} 较昨日 {abs(diff):.2f}")
+        arrow = "↑" if diff >= 0 else "↓"
+        self.card_cost.delta_label.setText(f"{arrow} 较昨日 {abs(diff):.2f}")
         self.card_tok.value_label.setText(fmt_tokens(st["prompt"] + st["completion"]))
         self.card_tok.delta_label.setText(
             f"输入 {fmt_tokens(st['prompt'])} · 输出 {fmt_tokens(st['completion'])}")
@@ -184,30 +176,6 @@ class DashboardPage(QWidget):
         self.card_cache.delta_label.setText(f"占输入 {pct}")
         self.card_req.value_label.setText(f"{st['requests']:,}")
         self.card_req.delta_label.setText(f"失败 {st['fail']}")
-
-    def append_row(self, r, top=True):
-        t = self.req_table
-        row = 0 if top else t.rowCount()
-        t.insertRow(row)
-        vals = [(r.get("ts") or "")[11:] or "--:--:--", r.get("key_name", ""),
-                r.get("real_model") or r.get("model"), r.get("effort") or "—",
-                fmt_tokens(r.get("prompt_tokens")), fmt_tokens(r.get("cached_tokens")),
-                fmt_tokens(r.get("completion_tokens")),
-                fmt_money(r["cost"]) if r.get("cost_known") else "—",
-                str(r.get("status", 0))]
-        for col, v in enumerate(vals):
-            t.setItem(row, col, readonly_item(v, col in (4, 5, 6, 7)))
-        if r.get("status") == 200 and not r.get("error"):
-            t.setItem(row, 8, QTableWidgetItem())
-            t.cellWidget = None
-            t.setCellWidget(row, 8, pill("200", "g"))
-        else:
-            t.setCellWidget(row, 8, pill(str(r.get("status", 0)) or "ERR", "r"))
-
-    def prepend_row(self, rec):
-        self.append_row(rec, top=True)
-        if self.req_table.rowCount() > 50:
-            self.req_table.removeRow(self.req_table.rowCount() - 1)
 
 
 # ================================================================ 模型与档位
@@ -379,6 +347,7 @@ class KeysPage(QWidget):
 
 # ================================================================ 用量明细
 class UsagePage(QWidget):
+    """按 (API key × 模型) 聚合的 token 用量与费用。"""
     def __init__(self, store, proxy, parent=None):
         super().__init__(parent)
         self.store, self.proxy = store, proxy
@@ -387,81 +356,78 @@ class UsagePage(QWidget):
         root.setSpacing(12)
 
         head = DH(); head.setSpacing(10)
-        head.addWidget(QLabel("用量明细", objectName="PageTitle"))
-        self.range = QComboBox()
-        for label, days in [("今天", 0), ("近 7 天", 7), ("近 30 天", 30), ("全部", None)]:
-            self.range.addItem(label, days)
-        self.range.currentIndexChanged.connect(self.refresh)
-        head.addWidget(self.range)
-        self.key_filter = QComboBox(); self.key_filter.setMinimumWidth(140)
-        self.key_filter.currentIndexChanged.connect(self.refresh)
-        head.addWidget(self.key_filter)
-        self.model_filter = QComboBox(); self.model_filter.setMinimumWidth(180)
-        self.model_filter.currentIndexChanged.connect(self.refresh)
-        head.addWidget(self.model_filter)
+        box = DV()
+        box.addWidget(QLabel("用量明细", objectName="PageTitle"))
+        sub = QLabel("按 API key × 模型 汇总的 token 用量与费用（人民币）")
+        sub.setObjectName("PageSub")
+        box.addWidget(sub)
+        head.addLayout(box)
         head.addStretch(1)
-        export = QPushButton("导出 CSV")
-        export.setProperty("ghost", True)
+        export = QPushButton("导出 CSV"); export.setProperty("ghost", True)
         export.clicked.connect(self.export_csv)
         head.addWidget(export)
         root.addLayout(head)
 
+        filters = DH(); filters.setSpacing(10)
+        filters.addWidget(QLabel("API Key"))
+        self.key_filter = QComboBox(); self.key_filter.setMinimumWidth(140)
+        self.key_filter.currentIndexChanged.connect(self.refresh)
+        filters.addWidget(self.key_filter)
+        filters.addWidget(QLabel("模型"))
+        self.model_filter = QComboBox(); self.model_filter.setMinimumWidth(200)
+        self.model_filter.currentIndexChanged.connect(self.refresh)
+        filters.addWidget(self.model_filter)
+        filters.addStretch(1)
+        root.addLayout(filters)
+
         self.table = make_table(
-            ["时间", "Key", "请求模型", "实际模型", "档位", "输入", "缓存", "输出",
-             "思考", "费用", "状态", "耗时"], stretch_cols=[1])
+            ["API Key", "模型", "请求数", "输入 Tokens", "缓存命中", "输出 Tokens",
+             "费用"], stretch_cols=[0, 1])
         root.addWidget(self.table, 1)
         self.reload_filters()
         self.refresh()
 
     def reload_filters(self):
-        self.key_filter.blockSignals(True); self.model_filter.blockSignals(True)
+        for w in (self.key_filter, self.model_filter):
+            w.blockSignals(True)
         self.key_filter.clear(); self.key_filter.addItem("全部 Key", None)
         for k in self.store.list_keys():
             self.key_filter.addItem(k["name"], k["id"])
         self.model_filter.clear(); self.model_filter.addItem("全部模型", None)
         for m in sorted(set(self.store.all_models_seen())):
             self.model_filter.addItem(m, m)
-        self.key_filter.blockSignals(False); self.model_filter.blockSignals(False)
+        for w in (self.key_filter, self.model_filter):
+            w.blockSignals(False)
 
     def refresh(self):
-        days = self.range.currentData()
-        date_from = QDate.currentDate().addDays(-days).toString("yyyy-MM-dd") if days else None
-        rows = self.store.query_requests(
-            date_from=date_from, key_id=self.key_filter.currentData(),
+        rows = self.store.usage_by_key_model(
+            key_id=self.key_filter.currentData(),
             model=self.model_filter.currentData())
         self.table.setRowCount(0)
         for r in rows:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            vals = [r["ts"][5:] if r["ts"] else "", r["key_name"],
-                    r["model"] or "—", r["real_model"] or "—",
-                    r["effort"] or "—",
-                    fmt_tokens(r["prompt_tokens"]), fmt_tokens(r["cached_tokens"]),
-                    fmt_tokens(r["completion_tokens"]), fmt_tokens(r["reasoning_tokens"]),
-                    fmt_money(r["cost"]) if r["cost_known"] else "—（未设价）",
-                    str(r["status"]), f"{r['duration_ms']}ms"]
+            cost = fmt_money(r["cost"]) if r["cost_known"] else "—（未设价）"
+            vals = [r["key_name"], r["model"], str(r["requests"]),
+                    fmt_tokens(r["prompt"]), fmt_tokens(r["cached"]),
+                    fmt_tokens(r["completion"]), cost]
             for col, v in enumerate(vals):
-                self.table.setItem(row, col, readonly_item(v, col in (5, 6, 7, 8, 9)))
-        self.reload_filters()
+                self.table.setItem(row, col, readonly_item(v, col in (3, 4, 5, 6)))
 
     def export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "导出用量明细", "usage.csv", "CSV (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, "导出用量汇总", "usage.csv", "CSV (*.csv)")
         if not path:
             return
-        days = self.range.currentData()
-        date_from = QDate.currentDate().addDays(-days).toString("yyyy-MM-dd") if days else None
-        rows = self.store.query_requests(
-            date_from=date_from, key_id=self.key_filter.currentData(),
-            model=self.model_filter.currentData(), limit=100000)
-        cols = ["ts", "key_name", "model", "real_model", "effort", "prompt_tokens",
-                "cached_tokens", "completion_tokens", "reasoning_tokens",
-                "cost", "cost_known", "status", "duration_ms", "stream", "error"]
+        rows = self.store.usage_by_key_model(
+            key_id=self.key_filter.currentData(),
+            model=self.model_filter.currentData())
+        cols = ["key_name", "model", "requests", "prompt", "cached",
+                "completion", "reasoning", "cost", "cost_known", "fails"]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            w = csv.writer(f)
-            w.writerow(cols)
+            w = csv.writer(f); w.writerow(cols)
             for r in rows:
                 w.writerow([r.get(c, "") for c in cols])
-        QMessageBox.information(self, "导出完成", f"已导出 {len(rows)} 条到\n{path}")
+        QMessageBox.information(self, "导出完成", f"已导出 {len(rows)} 行到\n{path}")
 
 
 # ================================================================ 设置（价格表 + 通用）
@@ -477,6 +443,21 @@ class SettingsPage(QWidget):
         sub = QLabel("所有价格由你手动输入（¥ / 百万 tokens）；未填写的模型只统计 tokens 不计费")
         sub.setObjectName("PageSub")
         root.addWidget(title); root.addWidget(sub)
+
+        theme_row = QHBoxLayout(); theme_row.setSpacing(10)
+        theme_row.addWidget(QLabel("UI 配色风格"))
+        self.theme_combo = QComboBox()
+        for n in theme.names():
+            self.theme_combo.addItem(n)
+        self.theme_combo.setCurrentText(
+            self.store.get_kv("ui_theme") or theme.DEFAULT_THEME)
+        self.theme_combo.currentTextChanged.connect(self.change_theme)
+        theme_row.addWidget(self.theme_combo)
+        hint = QLabel("切换立即生效并记住")
+        hint.setObjectName("PageSub")
+        theme_row.addWidget(hint)
+        theme_row.addStretch(1)
+        root.addLayout(theme_row)
 
         self.price_table = QTableWidget(0, 6)
         self.price_table.setHorizontalHeaderLabels(
@@ -630,6 +611,12 @@ class SettingsPage(QWidget):
             self, "已保存",
             "设置已保存。后端地址/端口变更需重启程序生效。")
 
+    def change_theme(self, name):
+        self.store.set_kv("ui_theme", name)
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(theme.get(name))
+
     def relogin(self):
         self.login_btn.setEnabled(False)
         self.login_state.setText("正在打开浏览器等待登录…")
@@ -691,7 +678,7 @@ class MainWindow(QMainWindow):
         # 页面
         self.stack = QStackedWidget()
         self.pages = [
-            DashboardPage(store, proxy, bridge),
+            DashboardPage(store, proxy),
             ModelsPage(store, proxy),
             KeysPage(store, proxy),
             UsagePage(store, proxy),

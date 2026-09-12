@@ -31,10 +31,10 @@ def main():
     args = ap.parse_args()
 
     app = QApplication(sys.argv)
-    app.setStyleSheet(theme.QSS)
     app.setApplicationName("chat2api 控制台")
 
     store = Store()
+    app.setStyleSheet(theme.get(store.get_kv("ui_theme") or theme.DEFAULT_THEME))
     if args.port:
         store.set_kv("port", str(args.port))
     if args.base_url:

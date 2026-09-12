@@ -275,6 +275,32 @@ class Store:
                 "SELECT DISTINCT real_model FROM requests WHERE real_model!=''").fetchall()
             return [r["real_model"] for r in rows]
 
+    def usage_by_key_model(self, key_id=None, model=None, date_from=None):
+        """按 (API key, 模型) 聚合的用量与费用（明细页数据源）。"""
+        sql = """
+            SELECT COALESCE(k.name,'（无 key）') key_name,
+                   r.real_model model,
+                   COUNT(*) requests,
+                   COALESCE(SUM(r.prompt_tokens),0) prompt,
+                   COALESCE(SUM(r.cached_tokens),0) cached,
+                   COALESCE(SUM(r.completion_tokens),0) completion,
+                   COALESCE(SUM(r.reasoning_tokens),0) reasoning,
+                   COALESCE(SUM(r.cost),0) cost,
+                   CASE WHEN SUM(r.cost_known)>0 THEN 1 ELSE 0 END cost_known,
+                   SUM(CASE WHEN r.status!=200 THEN 1 ELSE 0 END) fails
+            FROM requests r LEFT JOIN api_keys k ON k.id=r.key_id
+            WHERE r.real_model!=''"""
+        args = []
+        if key_id:
+            sql += " AND r.key_id=?"; args.append(key_id)
+        if model:
+            sql += " AND r.real_model=?"; args.append(model)
+        if date_from:
+            sql += " AND substr(r.ts,1,10)>=?"; args.append(date_from)
+        sql += " GROUP BY r.key_id, r.real_model ORDER BY cost DESC"
+        with self.lock:
+            return [dict(x) for x in self.conn.execute(sql, args).fetchall()]
+
     # ---------------- 价格表 ----------------
     def get_prices(self) -> dict:
         """model -> {'input':…,'cached':…,'output':…,'note':…}"""
