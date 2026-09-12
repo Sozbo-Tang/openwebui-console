@@ -748,6 +748,12 @@ class SettingsPage(QWidget):
         gen.addWidget(QLabel(T("档位虚拟模型（逗号分隔）")))
         self.base_models = QLineEdit(self.store.get_kv("effort_base_models"))
         gen.addWidget(self.base_models, 1)
+        gen.addWidget(QLabel(T("上下文瘦身：工具描述截断（字符，0=关）")))
+        self.ctx_tool_desc = QLineEdit(self.store.get_kv("ctx_tool_desc"))
+        self.ctx_tool_desc.setFixedWidth(70); gen.addWidget(self.ctx_tool_desc)
+        gen.addWidget(QLabel(T("上下文瘦身：保留最近消息数（0=关）")))
+        self.ctx_max_history = QLineEdit(self.store.get_kv("ctx_max_history"))
+        self.ctx_max_history.setFixedWidth(70); gen.addWidget(self.ctx_max_history)
         b_gen = QPushButton(T("保存并生效")); b_gen.setProperty("ghost", True)
         b_gen.clicked.connect(self.save_general)
         gen.addWidget(b_gen)
@@ -860,6 +866,13 @@ class SettingsPage(QWidget):
         except ValueError:
             pass
         self.store.set_kv("effort_base_models", self.base_models.text().strip())
+        try:
+            self.store.set_kv("ctx_tool_desc",
+                              str(int(self.ctx_tool_desc.text().strip() or "0")))
+            self.store.set_kv("ctx_max_history",
+                              str(int(self.ctx_max_history.text().strip() or "0")))
+        except ValueError:
+            pass
         QMessageBox.information(
             self, T("已保存"), T("设置已保存。后端地址/端口变更需重启程序生效。"))
 

@@ -32,7 +32,43 @@ DEFAULTS = {
     "text_color": "white",                  # 字体颜色：black | white
     "language": "zh",                       # 界面语言：zh | en
     "bg_image": "",                         # 背景图片路径（JPEG）
+    "ctx_tool_desc": "0",                   # 工具描述截断到 N 字符；0=不裁剪
+    "ctx_max_history": "0",                 # 只保留最近 N 条非 system 消息；0=不裁剪
 }
+
+
+def slim_context(body: dict, store) -> dict:
+    """按设置裁剪转发给上游的请求体（上下文瘦身，两项默认关闭）。
+    - 工具描述截断：模型调用主要靠工具名与参数结构，长描述可压缩；
+    - 历史裁剪：保留全部 system + 最近 N 条非 system 消息（会"失忆"，用户自行权衡）。"""
+    try:
+        tool_desc = int(store.get_kv("ctx_tool_desc") or 0)
+        max_hist = int(store.get_kv("ctx_max_history") or 0)
+    except ValueError:
+        tool_desc = max_hist = 0
+    if not tool_desc and not max_hist:
+        return body
+    out = dict(body)
+    msgs = out.get("messages")
+    if isinstance(msgs, list) and max_hist:
+        sys_msgs = [m for m in msgs if m.get("role") == "system"]
+        rest = [m for m in msgs if m.get("role") != "system"]
+        if len(rest) > max_hist:
+            out["messages"] = sys_msgs + rest[-max_hist:]
+    tools = out.get("tools")
+    if isinstance(tools, list) and tool_desc:
+        slim = []
+        for t in tools:
+            if isinstance(t, dict) and isinstance(t.get("function"), dict):
+                t = dict(t)
+                fn = dict(t["function"])
+                d = fn.get("description")
+                if isinstance(d, str) and len(d) > tool_desc:
+                    fn["description"] = d[:tool_desc] + "…"
+                t["function"] = fn
+            slim.append(t)
+        out["tools"] = slim
+    return out
 
 # 官方参考价（USD / 1M tokens）——仅用于“恢复官方参考价”按钮预填。
 # 来源：docs.z.ai、api-docs.deepseek.com（2026-09 查询）
