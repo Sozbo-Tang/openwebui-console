@@ -182,6 +182,7 @@ class DashboardPage(QWidget):
         state = px.state if px else "starting"
         detail = (px.state_detail or "") if px else ""
         text, color = STATE_TEXT.get(state, STATE_TEXT["starting"])
+        text = T(text)
         self.state_label.setText(
             f"<span style='color:{color};font-size:15px;font-weight:700'>{T(text)}</span>")
         cache = px.models_cache.get("data") if px else None
@@ -440,7 +441,7 @@ class UsagePage(QWidget):
         for r in rows:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            cost = fmt_money(r["cost"]) if r["cost_known"] else "—（未设价）"
+            cost = fmt_money(r["cost"]) if r["cost_known"] else T("—（未设价）")
             vals = [r["key_name"], r["model"], str(r["requests"]),
                     fmt_tokens(r["prompt"]), fmt_tokens(r["cached"]),
                     fmt_tokens(r["completion"]), cost]
@@ -695,7 +696,7 @@ class SettingsPage(QWidget):
         if not path:
             return
         if not is_jpeg(path):
-            QMessageBox.warning(self, T("已保存"), "不是有效的 JPEG 文件（仅支持 JPEG 格式）")
+            QMessageBox.warning(self, T("已保存"), T("不是有效的 JPEG 文件（仅支持 JPEG 格式）"))
             return
         self.store.set_kv("bg_image_src", path)
         self.bg_path.setText(path)
@@ -988,6 +989,7 @@ class MainWindow(QMainWindow):
 
     def update_status(self, s):
         text, color = STATE_TEXT.get(s.get("state", "starting"), STATE_TEXT["starting"])
+        text = T(text)
         port = self.store.get_kv("port")
         detail = s.get("detail") or ""
         self.status_box.setText(

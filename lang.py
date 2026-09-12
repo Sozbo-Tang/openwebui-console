@@ -142,6 +142,29 @@ STRINGS = {
     # 吊销确认
     "确定吊销「{name}」？使用该 key 的客户端将立即 401。":
         "Revoke \"{name}\"? Clients using this key get 401 immediately.",
+    # 状态文本（使用处包 T）
+    "● 后端已连接": "● backend connected",
+    "● 未登录": "● not signed in",
+    "● 凭证失效": "● credentials expired",
+    "● 后端不可达": "● backend unreachable",
+    "● 启动中…": "● starting…",
+    "默认（后端）": "Default (backend)",
+    "—（未设价）": "— (no price)",
+    "不是有效的 JPEG 文件（仅支持 JPEG 格式）": "Not a valid JPEG file (JPEG only)",
+    # 背景图框选
+    "背景图片（JPEG，框选区域）": "Background (JPEG, frame a region)",
+    "选择背景图片": "Pick Background Image",
+    "背景图片": "Background Image",
+    "重新框选区域": "Re-frame Region",
+    "框选背景显示区域": "Frame Background Region",
+    "在图片上按住鼠标拖拽，圈选要做背景的区域":
+        "Drag on the image to select the area to use as background",
+    "使用所选区域": "Use Selected Area",
+    "使用整张图片": "Use Full Image",
+    "请先选择一张 JPEG 图片": "Please pick a JPEG image first",
+    "选好图片后在弹窗里拖拽框选要显示的区域，背景会铺满界面并叠加半透明遮罩保证文字可读":
+        "After picking an image, drag in the dialog to frame the region to show; "
+        "the background fills the window with a translucent mask to keep text readable",
 }
 
 
