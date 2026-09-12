@@ -10,8 +10,9 @@ HERE = "/Users/tianhuatang/AI-Workflows/zcode/workspaces/chat2api-gui"
 DB_PATH = HERE + "/chat2api.db"
 TOKEN_FILE = HERE + "/token.json"
 
-# 思考档位后缀 → reasoning_effort 值
-EFFORT_LEVELS = {"Fast": "none", "Low": "low", "Medium": "medium", "High": "high"}
+# 思考档位后缀 → reasoning_effort 值（国际通用 5 档，后端已实测全部支持）
+EFFORT_LEVELS = {"Low": "low", "Medium": "medium", "High": "high",
+                 "XHigh": "xhigh", "Max": "max"}
 
 # 应用设置默认值
 DEFAULTS = {

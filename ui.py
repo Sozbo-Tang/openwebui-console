@@ -23,9 +23,9 @@ STATE_TEXT = {
     "backend_down": ("● 后端不可达", "#f2777a"),
     "starting": ("● 启动中…", "#f5bd60"),
 }
-LEVEL_LABELS = {"": "默认（后端）", "none": "关", "low": "低",
-                "medium": "中", "high": "高"}
-LEVEL_ORDER = ["", "none", "low", "medium", "high"]
+LEVEL_LABELS = {"": "默认（后端）", "low": "low", "medium": "medium",
+                "high": "high", "xhigh": "xhigh", "max": "max"}
+LEVEL_ORDER = ["", "low", "medium", "high", "xhigh", "max"]
 
 
 def fmt_money(v):
@@ -189,7 +189,7 @@ class DashboardPage(QWidget):
         t = self.req_table
         row = 0 if top else t.rowCount()
         t.insertRow(row)
-        vals = [r.get("ts", "")[11:] or "--:--:--", r.get("key_name", ""),
+        vals = [(r.get("ts") or "")[11:] or "--:--:--", r.get("key_name", ""),
                 r.get("real_model") or r.get("model"), r.get("effort") or "—",
                 fmt_tokens(r.get("prompt_tokens")), fmt_tokens(r.get("cached_tokens")),
                 fmt_tokens(r.get("completion_tokens")),

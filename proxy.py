@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import requests
 
 import auth
-from core import Store, calc_cost, resolve_effort
+from core import EFFORT_LEVELS, Store, calc_cost, now_str, resolve_effort
 
 CHUNK_EXCEPTIONS = (requests.exceptions.ChunkedEncodingError,
                     requests.exceptions.ConnectionError)
@@ -80,7 +80,7 @@ class ProxyServer:
         if self.store.get_kv("effort_mode") == "follow_client":
             for base in self.store.effort_base_models():
                 src = next((m for m in data["data"] if m.get("id") == base), None)
-                for suffix in ("Fast", "Low", "Medium", "High"):
+                for suffix in EFFORT_LEVELS:
                     vid = f"{base}-{suffix}"
                     if any(m.get("id") == vid for m in data["data"]):
                         continue
@@ -331,8 +331,9 @@ class Handler(BaseHTTPRequestHandler):
                 status=0, duration_ms=0, stream=0, error=None):
         prices = px.store.get_prices()
         cost, known = calc_cost(prices, real_model, prompt, cached, completion)
+        ts = now_str()
         rec = {
-            "ts": None,  # Store 里取当前时间
+            "ts": ts,
             "key_id": key_row["id"] if key_row else None,
             "model": model, "real_model": real_model, "effort": effort,
             "prompt_tokens": prompt, "cached_tokens": cached,
@@ -342,7 +343,6 @@ class Handler(BaseHTTPRequestHandler):
             "stream": stream, "error": error,
         }
         px.store.log_request(**rec)
-        rec["ts"] = None
         rec["key_name"] = key_row["name"] if key_row else "（无 key）"
         if px.on_request:
             try:
