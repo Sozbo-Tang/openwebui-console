@@ -36,8 +36,6 @@ def main():
 
     store = Store()
     lang.LANG = store.get_kv("language") or "zh"
-    if args.port:
-        store.set_kv("port", str(args.port))
     if args.base_url:
         store.set_kv("base_url", args.base_url)
 
@@ -47,7 +45,7 @@ def main():
         store, creds,
         on_request=bridge.requestLogged.emit,
         on_state=bridge.stateChanged.emit)
-    proxy.start()
+    proxy.start(port=args.port)
 
     win = MainWindow(store, proxy, bridge)
     win.show()

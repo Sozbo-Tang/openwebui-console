@@ -91,9 +91,9 @@ class ProxyServer:
         return data
 
     # ---------- 生命周期 ----------
-    def start(self):
+    def start(self, port=None):
         host = self.store.get_kv("host")
-        port = int(self.store.get_kv("port"))
+        port = int(port or self.store.get_kv("port"))
         self._httpd = ThreadingHTTPServer((host, port), Handler)
         self._httpd.proxy = self
         self._thread = threading.Thread(target=self._httpd.serve_forever,
