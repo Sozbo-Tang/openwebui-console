@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """core.py — 数据层：SQLite 存储、价格表与计费逻辑。"""
+import os
 import secrets
 import sqlite3
 import threading
 from datetime import datetime
 
-HERE = "/Users/tianhuatang/AI-Workflows/zcode/workspaces/chat2api-gui"
-DB_PATH = HERE + "/chat2api.db"
-TOKEN_FILE = HERE + "/token.json"
+import sys as _sys
+if getattr(_sys, "frozen", False):   # PyInstaller 打包运行
+    DATA_DIR = os.path.expanduser("~/Library/Application Support/chat2api-gui")
+else:
+    DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(DATA_DIR, "chat2api.db")
+TOKEN_FILE = os.path.join(DATA_DIR, "token.json")
 
 # 思考档位后缀 → reasoning_effort 值（国际通用 5 档，后端已实测全部支持）
 EFFORT_LEVELS = {"Low": "low", "Medium": "medium", "High": "high",

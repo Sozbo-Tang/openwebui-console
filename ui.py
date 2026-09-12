@@ -19,7 +19,7 @@ import auth
 import lang
 import theme
 from lang import T
-from core import EFFORT_LEVELS, REFERENCE_PRICES_USD
+from core import DATA_DIR, EFFORT_LEVELS, REFERENCE_PRICES_USD
 
 STATE_TEXT = {
     "ok": ("● 后端已连接", "#7bd88f"),
@@ -777,8 +777,7 @@ class SettingsPage(QWidget):
             return
         dlg = BgRegionDialog(src, self)
         if dlg.exec() == QDialog.Accepted and dlg.sel_rect is not None:
-            out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "bg_selected.png")
+            out = os.path.join(DATA_DIR, "bg_selected.png")
             dlg.cropped_pixmap().save(out, "PNG")
             self.store.set_kv("bg_image", out)
             self._style()

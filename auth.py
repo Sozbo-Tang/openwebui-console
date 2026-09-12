@@ -7,9 +7,9 @@ import time
 
 import requests
 
-HERE = "/Users/tianhuatang/AI-Workflows/zcode/workspaces/chat2api-gui"
-TOKEN_FILE = HERE + "/token.json"
-PROFILE_DIR = HERE + "/.chrome-profile"
+from core import DATA_DIR
+TOKEN_FILE = os.path.join(DATA_DIR, "token.json")
+PROFILE_DIR = os.path.join(DATA_DIR, ".chrome-profile")
 LEGACY_TOKEN_FILE = "/Users/tianhuatang/AI-Workflows/zcode/workspaces/chat2api-um-genai/token.json"
 
 CHROME_PATHS = [
