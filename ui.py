@@ -71,6 +71,7 @@ class DownCombo(QComboBox):
         popup = self.view().window()
         if not popup or not popup.isVisible():
             return
+        popup.setFixedWidth(self.width())        # 弹窗与显示框同宽
         target = self.mapToGlobal(QPoint(0, 0))   # 弹窗左上角 = 显示框左上角
         if popup.pos() != target:
             popup.move(target)
@@ -484,10 +485,12 @@ class SettingsPage(QWidget):
         look = QHBoxLayout(); look.setSpacing(10)
         look.addWidget(QLabel(T("UI 配色风格")))
         self.theme_combo = DownCombo()
+        cur_theme = self.store.get_kv("ui_theme") or theme.DEFAULT_THEME
         for n in theme.names():
-            self.theme_combo.addItem(n)
-        self.theme_combo.setCurrentText(self.store.get_kv("ui_theme") or theme.DEFAULT_THEME)
-        self.theme_combo.currentTextChanged.connect(self.change_theme)
+            self.theme_combo.addItem(T(n), n)   # 显示翻译名，data 保留 kv 原名
+        self.theme_combo.setCurrentIndex(
+            theme.names().index(cur_theme) if cur_theme in theme.names() else 0)
+        self.theme_combo.currentIndexChanged.connect(self.change_theme)
         look.addWidget(self.theme_combo)
         look.addWidget(QLabel(T("界面语言")))
         self.lang_combo = DownCombo()
@@ -674,7 +677,8 @@ class SettingsPage(QWidget):
             self, T("已保存"), T("设置已保存。后端地址/端口变更需重启程序生效。"))
 
     # ---------- 界面：主题 / 语言 / 字体 / 背景图 ----------
-    def change_theme(self, name):
+    def change_theme(self, i):
+        name = self.theme_combo.currentData() or theme.DEFAULT_THEME
         self.store.set_kv("ui_theme", name)
         self._style()
 

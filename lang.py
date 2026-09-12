@@ -165,6 +165,15 @@ STRINGS = {
     "选好图片后在弹窗里拖拽框选要显示的区域，背景会铺满界面并叠加半透明遮罩保证文字可读":
         "After picking an image, drag in the dialog to frame the region to show; "
         "the background fills the window with a translucent mask to keep text readable",
+    # 配色主题名（kv 存中文名，显示走 T()）
+    "深色（默认）": "Dark (default)",
+    "浅色": "Light",
+    "石墨灰": "Graphite",
+    "深海蓝": "Deep Sea Blue",
+    "玫瑰红": "Rose",
+    "森林绿": "Forest Green",
+    "琥珀橙": "Amber Orange",
+    "暗夜紫": "Midnight Purple",
 }
 
 

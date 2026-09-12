@@ -26,7 +26,7 @@ def build_qss(p: dict, card_alpha=None, table_alpha=None, input_alpha=None):
 QMainWindow, QWidget {{ background: {p['bg']}; }}
 QLabel {{ background: transparent; }}
 QToolTip {{ background: {p['panel']}; color: {p['text']};
-  border: 1px solid {p['border']}; }}
+  border: 1px solid {p['border']}; border-radius: 6px; }}
 
 #Sidebar QListWidget {{ background: transparent; border: none; outline: none; }}
 #Sidebar QListWidget::item {{ color: {p['muted']}; padding: 10px 14px;
@@ -76,7 +76,8 @@ QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox {{
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus {{ border-color: {p['focus']}; }}
 QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox QAbstractItemView {{ background: {p['card']};
-  border: 1px solid {p['input_border']}; selection-background-color: {p['nav_active']}; }}
+  border: 1px solid {p['input_border']}; border-radius: 8px;
+  selection-background-color: {p['nav_active']}; }}
 
 QCheckBox::indicator {{ width: 15px; height: 15px;
   border: 1px solid {p['input_border']}; border-radius: 4px; background: {input_bg}; }}
@@ -101,7 +102,7 @@ QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
 QScrollBar::handle:horizontal {{ background: {p['input_border']};
   border-radius: 5px; min-width: 30px; }}
 
-QDialog {{ background: {p['panel']}; }}
+QDialog {{ background: {p['panel']}; border-radius: 12px; }}
 QLabel#DialogTitle {{ font-size: 14px; font-weight: 600; }}
 QLabel#DialogSub {{ color: {p['muted']}; font-size: 12px; }}
 """
