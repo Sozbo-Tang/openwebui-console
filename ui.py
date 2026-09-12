@@ -5,7 +5,7 @@
 import csv
 import os
 
-from PySide6.QtCore import Qt, QTimer, Signal, QObject
+from PySide6.QtCore import Qt, QTimer, Signal, QObject, QEvent, QPoint
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
@@ -50,18 +50,29 @@ def fmt_tokens(n):
 
 
 class DownCombo(QComboBox):
-    """下拉列表固定从控件正下方弹出、从第一项开始显示。
-    延迟一拍再定位：Qt 自己的事件过滤器会在 show 时重新定位弹窗，
-    立即移动会被它覆盖（macOS 上尤其明显）。"""
+    """下拉列表：第一项与显示框对齐，其余选项向下展开（遮住下方内容无妨）。
+    Qt/macOS 会在弹出后自行重定位弹窗，单次移动会被覆盖，
+    这里用事件过滤器 + 多拍延迟定位反复压回目标位置。"""
     def showPopup(self):
         super().showPopup()
-        QTimer.singleShot(0, self._place_popup)
+        popup = self.view().window()
+        if popup:
+            popup.installEventFilter(self)
+        for delay in (0, 20, 60, 120):
+            QTimer.singleShot(delay, self._place_popup)
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Show:
+            QTimer.singleShot(0, self._place_popup)
+        return super().eventFilter(obj, ev)
 
     def _place_popup(self):
         popup = self.view().window()
-        if not popup:
+        if not popup or not popup.isVisible():
             return
-        popup.move(self.mapToGlobal(QPoint(0, self.height() + 2)))
+        target = self.mapToGlobal(QPoint(0, 0))   # 弹窗左上角 = 显示框左上角
+        if popup.pos() != target:
+            popup.move(target)
         self.view().scrollToTop()
 
 
