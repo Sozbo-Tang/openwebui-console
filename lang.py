@@ -181,6 +181,14 @@ STRINGS = {
     "完成": "Done",
     "密钥已生成，点击下方复制；之后也可随时在列表里点击密钥再次复制":
         "Key generated, click below to copy; you can also click it in the list anytime",
+    # 密钥可见模式
+    "密钥查看方式": "Key Visibility",
+    "可随时在列表中复制": "Copyable anytime from the list",
+    "仅创建时复制一次": "Copy once at creation only",
+    "⚠ 此密钥仅现在显示这一次，关闭后无法再复制，请立即保存":
+        "⚠ This key is shown only once; it cannot be viewed or copied again "
+        "after this dialog closes. Save it now",
+    "仅创建时显示一次，无法再次复制": "Shown once at creation; cannot be copied again",
 }
 
 

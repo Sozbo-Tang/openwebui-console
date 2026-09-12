@@ -122,6 +122,10 @@ class Store:
                 value TEXT
             );
             """)
+            try:
+                self.conn.execute("ALTER TABLE api_keys ADD COLUMN copyable INTEGER DEFAULT 1")
+            except Exception:
+                pass  # 列已存在
             self.conn.commit()
 
     # ---------------- 设置 (kv) ----------------
@@ -142,12 +146,12 @@ class Store:
                 if s.strip()]
 
     # ---------------- API keys ----------------
-    def create_key(self, name: str) -> dict:
+    def create_key(self, name: str, copyable: bool = True) -> dict:
         key = "sk-" + secrets.token_urlsafe(24)
         with self.lock:
             cur = self.conn.execute(
-                "INSERT INTO api_keys(name,key,created_at) VALUES(?,?,?)",
-                (name, key, now_str()))
+                "INSERT INTO api_keys(name,key,created_at,copyable) VALUES(?,?,?,?)",
+                (name, key, now_str(), 1 if copyable else 0))
             self.conn.commit()
             return {"id": cur.lastrowid, "name": name, "key": key}
 
@@ -189,7 +193,7 @@ class Store:
                     "SELECT COALESCE(SUM(cost),0) cost FROM requests WHERE key_id=?",
                     (r["id"],)).fetchone()
                 out.append({"id": r["id"], "name": r["name"], "key": r["key"],
-                            "created_at": r["created_at"],
+                            "created_at": r["created_at"], "copyable": r["copyable"],
                             "today_requests": t["n"], "today_prompt": t["pt"],
                             "today_completion": t["ct"], "today_cached": t["ca"],
                             "today_cost": t["cost"], "total_cost": tot["cost"]})
