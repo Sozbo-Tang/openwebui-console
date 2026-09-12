@@ -22,6 +22,10 @@ DEFAULTS = {
     "exchange_rate": "7.15",                # 美元→人民币，仅供参考价预填换算
     "effort_mode": "follow_client",         # follow_client | force
     "effort_base_models": "GLM-5.3-Flash",  # 注册思考档位虚拟模型的基础模型（逗号分隔）
+    "ui_theme": "",                         # 配色风格名（空=默认深色）
+    "text_color": "white",                  # 字体颜色：black | white
+    "language": "zh",                       # 界面语言：zh | en
+    "bg_image": "",                         # 背景图片路径（JPEG）
 }
 
 # 官方参考价（USD / 1M tokens）——仅用于“恢复官方参考价”按钮预填。

@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
 import auth
+import lang
 import theme
 from core import Store
 from proxy import ProxyServer
@@ -34,7 +35,7 @@ def main():
     app.setApplicationName("chat2api 控制台")
 
     store = Store()
-    app.setStyleSheet(theme.get(store.get_kv("ui_theme") or theme.DEFAULT_THEME))
+    lang.LANG = store.get_kv("language") or "zh"
     if args.port:
         store.set_kv("port", str(args.port))
     if args.base_url:
