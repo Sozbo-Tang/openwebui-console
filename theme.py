@@ -51,13 +51,15 @@ QToolTip {{ background: {p['panel']}; color: {p['text']};
   border-radius: 12px; }}
 #StatePanel QLabel {{ background: transparent; }}
 
-QTableWidget, QTableView {{ background: {table};
-  alternate-background-color: {table_alt}; border: 1px solid {p['border']};
-  border-radius: 10px; gridline-color: {p['border']};
+#TablePanel {{ background: {card}; border: 1px solid {p['border']};
+  border-radius: 12px; }}
+QTableWidget, QTableView {{ background: transparent;
+  alternate-background-color: {table_alt}; border: none;
+  gridline-color: {p['border']};
   selection-background-color: {p['nav_active']}; selection-color: #ffffff; }}
-QHeaderView::section {{ background: {p['head']}; color: {p['muted']}; border: none;
+QHeaderView::section {{ background: transparent; color: {p['muted']}; border: none;
   border-bottom: 1px solid {p['border']}; padding: 7px 10px; font-size: 11.5px; }}
-QTableCornerButton::section {{ background: {p['head']}; border: none; }}
+QTableCornerButton::section {{ background: transparent; border: none; }}
 
 QPushButton {{ background: {p['accent']}; color: #ffffff; border: none;
   border-radius: 8px; padding: 7px 16px; font-weight: 600; }}

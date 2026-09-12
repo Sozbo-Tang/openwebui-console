@@ -127,6 +127,17 @@ def make_table(headers, stretch_cols=None):
     return t
 
 
+def table_panel(table):
+    """把表格放进圆角面板：单元格/表头保持透明，圆角由面板承担，
+    内容四周留白使行背景永远碰不到面板圆角。"""
+    panel = QFrame()
+    panel.setObjectName("TablePanel")
+    v = QVBoxLayout(panel)
+    v.setContentsMargins(8, 6, 8, 8)
+    v.addWidget(table)
+    return panel
+
+
 def readonly_item(text, mono=False):
     it = QTableWidgetItem(str(text))
     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -246,7 +257,7 @@ class ModelsPage(QWidget):
         self.table = make_table(
             [T("模型"), T("状态"), T("思考档位"), T("上下文"), T("输入 ¥/M"),
              T("输出 ¥/M"), T("今日调用"), T("今日费用")], stretch_cols=[0])
-        root.addWidget(self.table, 1)
+        root.addWidget(table_panel(self.table), 1)
 
         note = QLabel(T("档位仅对支持 reasoning_effort 的模型生效（GLM / DeepSeek / Qwen）；"
                         "“默认”表示不注入参数、由后端决定。平台模型可能随时增删，"
@@ -334,7 +345,7 @@ class KeysPage(QWidget):
         self.table = make_table(
             [T("名称"), T("密钥"), T("创建时间"), T("请求数"), T("输入 Tokens"),
              T("输出 Tokens"), T("费用"), T("累计费用"), T("操作")], stretch_cols=[1])
-        root.addWidget(self.table, 1)
+        root.addWidget(table_panel(self.table), 1)
         self.refresh()
 
     def refresh(self):
@@ -425,7 +436,7 @@ class UsagePage(QWidget):
         self.table = make_table(
             ["API Key", T("模型"), T("请求数"), T("输入 Tokens"), T("缓存命中"),
              T("输出 Tokens"), T("费用")], stretch_cols=[0, 1])
-        root.addWidget(self.table, 1)
+        root.addWidget(table_panel(self.table), 1)
         self.reload_filters()
         self.refresh()
 
@@ -545,7 +556,7 @@ class SettingsPage(QWidget):
         self.price_table.verticalHeader().setVisible(False)
         self.price_table.setAlternatingRowColors(True)
         self.price_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
-        root.addWidget(self.price_table, 1)
+        root.addWidget(table_panel(self.price_table), 1)
 
         row = QHBoxLayout(); row.setSpacing(10)
         row.addStretch(1)
