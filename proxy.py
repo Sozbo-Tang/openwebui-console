@@ -284,40 +284,106 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, data)
             return
 
-        # ---- 流式：SSE 透传 + 旁路解析 usage ----
-        # 两个关键点（踩过坑）：事件必须用空行 \n\n 分隔；[DONE] 后立即停止
-        # 读取并关闭下游连接（上游可能 keep-alive 不关，客户端会等 EOF 挂住）。
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "close")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
+        # ---- 流式：SSE 透传 + 旁路解析 usage + 断流自动重试 ----
+        # 要点（全部踩过坑）：
+        #   1. 事件必须用空行 \n\n 分隔，否则严格解析客户端拿不到内容；
+        #   2. [DONE] 后立即停止读取并关闭下游连接；
+        #   3. 大上下文时上游网关约 50s 无输出就掐线（prefill 卡顿），
+        #      所以对上游的 200 响应头做惰性转发：拿到第一个数据行才向
+        #      客户端发响应头；尚未发出任何字节时断流 → 自动换连接重试
+        #      上游（最多 3 次），全部失败才回 502 让客户端重试。
         usage = {}
         broken = None
-        try:
-            for raw in r.iter_lines(decode_unicode=True):
-                if not raw:
+        client_started = False
+        done = False
+        attempts = 0
+        while True:
+            attempts += 1
+            broken = None
+            done = False
+            try:
+                r = px.backend("POST", "/api/chat/completions",
+                               stream=True, json=fwd)
+            except requests.RequestException as e:
+                if not client_started and attempts < 3:
+                    time.sleep(1)
                     continue
-                self.wfile.write((raw + "\n\n").encode("utf-8"))
-                self.wfile.flush()
-                if raw.startswith("data: "):
-                    payload = raw[6:].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        d = json.loads(payload)
-                        if d.get("usage"):
-                            usage = d["usage"]
-                    except Exception:
-                        pass
-        except (BrokenPipeError, ConnectionResetError):
-            pass  # 客户端断开
-        except CHUNK_EXCEPTIONS as e:
-            broken = f"上游断流: {type(e).__name__}"
-        finally:
-            r.close()
-            self.close_connection = True
+                self._record(px, key_row, requested, real_model, effort,
+                             stream=1, status=0,
+                             error=f"连接后端失败: {type(e).__name__}")
+                px.set_state("backend_down", f"后端连接失败: {type(e).__name__}")
+                self._error(502, "后端不可达", str(e)[:200])
+                return
+            if r.status_code == 401:
+                r.close()
+                self._record(px, key_row, requested, real_model, effort,
+                             stream=1, status=401,
+                             error="上游 401：凭证失效，请在设置里重新登录")
+                px.set_state("bad_creds", "凭证已失效，请在「设置」里重新登录")
+                self._error(502, "凭证失效", "上游返回 401，请在程序「设置」页重新登录")
+                return
+            if r.status_code != 200:
+                detail = r.text[:300]
+                r.close()
+                if not client_started and attempts < 3:
+                    time.sleep(1)
+                    continue
+                self._record(px, key_row, requested, real_model, effort,
+                             stream=1, status=r.status_code,
+                             error=f"上游 HTTP {r.status_code}: {detail}")
+                self._error(502, "上游请求失败", f"HTTP {r.status_code}: {detail}")
+                return
+            try:
+                for raw in r.iter_lines(decode_unicode=True):
+                    if not raw:
+                        continue
+                    if not client_started:
+                        # 第一个数据行到达才向客户端发响应头
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("Connection", "close")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        client_started = True
+                    self.wfile.write((raw + "\n\n").encode("utf-8"))
+                    self.wfile.flush()
+                    if raw.startswith("data: "):
+                        payload = raw[6:].strip()
+                        if payload == "[DONE]":
+                            done = True
+                            break
+                        try:
+                            d = json.loads(payload)
+                            if d.get("usage"):
+                                usage = d["usage"]
+                        except Exception:
+                            pass
+            except (BrokenPipeError, ConnectionResetError):
+                broken = "客户端断开"
+            except CHUNK_EXCEPTIONS as e:
+                broken = f"上游断流: {type(e).__name__}"
+            finally:
+                r.close()
+            if done or client_started or not broken:
+                break
+            if attempts >= 3:
+                self._record(px, key_row, requested, real_model, effort,
+                             stream=1, status=502, error=broken)
+                self._error(502, "上游无响应",
+                            f"{broken}；已重试 {attempts} 次（大上下文时上游约 50s "
+                            "无输出会被网关掐断，建议减少上下文或降低思考档位）")
+                return
+            time.sleep(1)
+        if not client_started:
+            # 重试耗尽前的正常空流（极罕见）：给客户端一个合法的空 SSE 结束
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+        self.close_connection = True
 
         u = usage or {}
         self._record(px, key_row, requested, real_model, effort,
