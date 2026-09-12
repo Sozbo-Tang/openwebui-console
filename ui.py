@@ -3,6 +3,7 @@
 """ui.py — PySide6 主窗口：侧边栏 + 仪表盘/模型档位/API密钥/用量明细/设置。
 支持：8 套配色主题、字体颜色（黑/白）、界面语言（正统中文/English）、JPEG 背景图。"""
 import csv
+import json
 import os
 
 from PySide6.QtCore import Qt, QTimer, Signal, QObject, QEvent, QPoint
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QListWidget, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem,
     QPushButton, QLineEdit, QComboBox, QDialog, QHeaderView,
     QAbstractItemView, QFileDialog, QMessageBox, QDoubleSpinBox,
+    QScrollArea,
 )
 
 import auth
@@ -441,7 +443,130 @@ class KeysPage(QWidget):
             self.refresh()
 
 
+# ================================================================ 连接指南
+class GuidePage(QWidget):
+    """连接指南：手把手教用户在 ZCode 等 agent 与 OpenAI 客户端里接入本代理。"""
+    def __init__(self, store, proxy, parent=None):
+        super().__init__(parent)
+        self.store, self.proxy = store, proxy
+        self.open_keys = None
+        self.setObjectName("PageRoot")
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        body = QWidget(); body.setObjectName("PageRoot")
+        root = QVBoxLayout(body); root.setContentsMargins(24, 20, 24, 20); root.setSpacing(10)
+
+        title = QLabel(T("连接指南")); title.setObjectName("PageTitle")
+        sub = QLabel(T("让 ZCode 等 agent 与任意 OpenAI 客户端通过本地接口连接本程序"))
+        sub.setObjectName("PageSub")
+        root.addWidget(title); root.addWidget(sub)
+
+        root.addWidget(QLabel(T("三样必填参数"), objectName="SectionTitle"))
+        port = self.store.get_kv("port")
+        self.base_url = "http://127.0.0.1:%s/v1" % port
+        for name, value, hint, with_copy in [
+                (T("Base URL"), self.base_url, "", True),
+                (T("API 格式"), "OpenAI Chat Completions", T("客户端里切勿选择 Responses"), False),
+                (T("API Key"), T("sk-…（在「API 密钥」页复制）"), "", False)]:
+            row = QHBoxLayout(); row.setSpacing(10)
+            lab = QLabel(name); lab.setMinimumWidth(90)
+            row.addWidget(lab)
+            val = QLineEdit(value); val.setReadOnly(True)
+            row.addWidget(val, 1)
+            if with_copy:
+                row.addWidget(self._copy_btn(self.base_url))
+            root.addLayout(row)
+            if hint:
+                h = QLabel(hint); h.setObjectName("PageSub")
+                h.setContentsMargins(100, 0, 0, 0)
+                root.addWidget(h)
+        keyrow = QHBoxLayout(); keyrow.setSpacing(10); keyrow.addStretch(1)
+        b_keys = QPushButton(T("去 API 密钥页")); b_keys.setProperty("ghost", True)
+        b_keys.clicked.connect(self._goto_keys)
+        keyrow.addWidget(b_keys)
+        root.addLayout(keyrow)
+
+        root.addWidget(QLabel(T("在 ZCode 里接入"), objectName="SectionTitle"))
+        steps = [
+            T("1. 打开 ZCode 设置 → 模型设置 → 自定义供应商 → 添加供应商（名称随意，例如 chat2api）"),
+            T("2. Base URL 填 {url}").format(url=self.base_url),
+            T("3. API 格式选 Chat Completions (/chat/completions)，切勿选 Responses"),
+            T("4. API Key 粘贴在「API 密钥」页复制的 sk- 密钥"),
+            T("5. 添加模型：名称必须与模型列表完全一致（GLM-5.3-Flash，用连字符而不是下划线）"),
+            T("6. 启用供应商，在聊天界面的模型选择器里选中它即可对话"),
+        ]
+        for s in steps:
+            lab = QLabel(s); lab.setWordWrap(True)
+            root.addWidget(lab)
+
+        root.addWidget(QLabel(T("其他 OpenAI 客户端（Cherry Studio 等）"), objectName="SectionTitle"))
+        tip = QLabel(T("供应商类型选 OpenAI；Base URL 与 API Key 同上；然后点「获取模型列表」自动带出模型。"))
+        tip.setWordWrap(True); root.addWidget(tip)
+
+        root.addWidget(QLabel(T("常见错误对照"), objectName="SectionTitle"))
+        self.err_table = make_table([T("界面提示"), T("原因"), T("解决办法")],
+                                    stretch_cols=[0, 1, 2])
+        self.err_table.setWordWrap(True)
+        for msg, cause, fix in [
+            ("401 Invalid API key", T("客户端未填或填错了密钥"),
+             T("去「API 密钥」页复制 sk- 密钥，粘贴到客户端")),
+            ("502 上游请求失败",
+             T("模型名与列表不一致（注意是连字符 - 不是下划线 _），或上游临时故障"),
+             T("核对模型名后重试")),
+            ("501 Unsupported method", T("API 格式误选了 Responses"), T("改为 Chat Completions")),
+            ("Connection refused", T("本程序未启动，或端口不对"), T("启动本程序，核对设置页端口")),
+        ]:
+            row = self.err_table.rowCount()
+            self.err_table.insertRow(row)
+            for c, val in enumerate((msg, cause, fix)):
+                it = QTableWidgetItem(val)
+                it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+                self.err_table.setItem(row, c, it)
+        self.err_table.resizeRowsToContents()
+        root.addWidget(table_panel(self.err_table))
+
+        root.addWidget(QLabel(T("命令行测试"), objectName="SectionTitle"))
+        sample = json.dumps({"model": "GLM-5.3-Flash",
+                             "messages": [{"role": "user", "content": "hi"}]},
+                            ensure_ascii=False)
+        lines = [
+            "curl %s/chat/completions \\" % self.base_url,
+            '  -H "Authorization: Bearer %s" \\' % T("<你的密钥>"),
+            '  -H "Content-Type: application/json" \\',
+            "  -d '%s'" % sample,
+        ]
+        curl_text = "\n".join(lines)
+        ce = QLineEdit(curl_text); ce.setReadOnly(True)
+        f = QFont("Menlo"); ce.setFont(f)
+        ce.setMinimumHeight(60)
+        root.addWidget(ce)
+        brow = QHBoxLayout(); brow.addStretch(1)
+        brow.addWidget(self._copy_btn(curl_text))
+        root.addLayout(brow)
+        root.addStretch(1)
+
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+
+    def _copy_btn(self, text: str) -> QPushButton:
+        b = QPushButton(T("复制")); b.setProperty("ghost", True)
+        b.clicked.connect(lambda _, t=text: self._copied(b, t))
+        return b
+
+    def _copied(self, b: QPushButton, t: str):
+        QApplication.clipboard().setText(t)
+        old = b.text()
+        b.setText(T("已复制 ✓"))
+        QTimer.singleShot(1200, lambda: b.setText(old))
+
+    def _goto_keys(self):
+        if self.open_keys:
+            self.open_keys()
+
+
 # ================================================================ 用量明细
+
 class UsagePage(QWidget):
     """按 (API key × 模型) 聚合的 token 用量与费用。"""
     def __init__(self, store, proxy, parent=None):
@@ -969,7 +1094,8 @@ class MainWindow(QMainWindow):
         sv.addWidget(brand)
         self.nav = QListWidget()
         for icon, label in (("◧", T("仪表盘")), ("▤", T("模型与思考档位")),
-                            ("⌘", T("API 密钥")), ("☰", T("用量明细")),
+                            ("⌘", T("API 密钥")), ("⇗", T("连接指南")),
+                            ("☰", T("用量明细")),
                             ("⚙", T("设置"))):
             self.nav.addItem(f"{icon}  {label}")
         self.nav.setCurrentRow(0)
@@ -985,11 +1111,13 @@ class MainWindow(QMainWindow):
             DashboardPage(store, proxy),
             ModelsPage(store, proxy),
             KeysPage(store, proxy),
+            GuidePage(store, proxy),
             UsagePage(store, proxy),
             SettingsPage(store, proxy, on_style_change=self.apply_style),
         ]
         for pg in self.pages:
             self.stack.addWidget(pg)
+        self.pages[3].open_keys = lambda: self.switch_page(2)
         layout.addWidget(self.stack, 1)
 
         self.bridge.stateChanged.connect(self.update_status)
@@ -1026,7 +1154,8 @@ class MainWindow(QMainWindow):
         self.nav.blockSignals(True)
         self.nav.clear()
         for icon, label in (("◧", T("仪表盘")), ("▤", T("模型与思考档位")),
-                            ("⌘", T("API 密钥")), ("☰", T("用量明细")),
+                            ("⌘", T("API 密钥")), ("⇗", T("连接指南")),
+                            ("☰", T("用量明细")),
                             ("⚙", T("设置"))):
             self.nav.addItem(f"{icon}  {label}")
         self.nav.setCurrentRow(row if row >= 0 else 0)
@@ -1035,11 +1164,13 @@ class MainWindow(QMainWindow):
             DashboardPage(self.store, self.proxy),
             ModelsPage(self.store, self.proxy),
             KeysPage(self.store, self.proxy),
+            GuidePage(self.store, self.proxy),
             UsagePage(self.store, self.proxy),
             SettingsPage(self.store, self.proxy, on_style_change=self.apply_style),
         ]
         for pg in self.pages:
             self.stack.addWidget(pg)
+        self.pages[3].open_keys = lambda: self.switch_page(2)
         self.stack.setCurrentIndex(cur)
         self.apply_style()
 

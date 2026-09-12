@@ -189,6 +189,49 @@ STRINGS = {
         "⚠ This key is shown only once; it cannot be viewed or copied again "
         "after this dialog closes. Save it now",
     "仅创建时显示一次，无法再次复制": "Shown once at creation; cannot be copied again",
+    # 连接指南
+    "连接指南": "Connection Guide",
+    "让 ZCode 等 agent 与任意 OpenAI 客户端通过本地接口连接本程序":
+        "Connect ZCode agents and any OpenAI client to this app via the local API",
+    "三样必填参数": "Three required settings",
+    "以 /v1 结尾": "ends with /v1",
+    "客户端里切勿选择 Responses": "Never pick Responses in the client",
+    "sk-…（在「API 密钥」页复制）": "sk-… (copy on the API Keys page)",
+    "去 API 密钥页": "Open API Keys",
+    "在 ZCode 里接入": "Connect from ZCode",
+    "1. 打开 ZCode 设置 → 模型设置 → 自定义供应商 → 添加供应商（名称随意，例如 chat2api）":
+        "1. In ZCode: Settings → Model providers → Custom → Add a provider (any name, e.g. chat2api)",
+    "2. Base URL 填 {url}": "2. Set Base URL to {url}",
+    "3. API 格式选 Chat Completions (/chat/completions)，切勿选 Responses":
+        "3. Set API format to Chat Completions (/chat/completions) — never Responses",
+    "4. API Key 粘贴在「API 密钥」页复制的 sk- 密钥":
+        "4. Paste the sk- key copied from the API Keys page",
+    "5. 添加模型：名称必须与模型列表完全一致（GLM-5.3-Flash，用连字符而不是下划线）":
+        "5. Add models: names must match the model list exactly (GLM-5.3-Flash, hyphens not underscores)",
+    "6. 启用供应商，在聊天界面的模型选择器里选中它即可对话":
+        "6. Enable the provider and pick the model in the chat to start",
+    "其他 OpenAI 客户端（Cherry Studio 等）": "Other OpenAI clients (Cherry Studio etc.)",
+    "供应商类型选 OpenAI；Base URL 与 API Key 同上；然后点「获取模型列表」自动带出模型。":
+        "Pick provider type OpenAI; use the Base URL and API Key above; then click fetch-models to list models.",
+    "常见错误对照": "Common Errors",
+    "界面提示": "Message shown",
+    "原因": "Cause",
+    "解决办法": "Fix",
+    "客户端未填或填错了密钥": "The key is missing or wrong in the client",
+    "去「API 密钥」页复制 sk- 密钥，粘贴到客户端":
+        "Copy the sk- key on the API Keys page and paste it into the client",
+    "模型名与列表不一致（注意是连字符 - 不是下划线 _），或上游临时故障":
+        "Model name doesn't match the list (hyphen - not underscore _), or a temporary upstream failure",
+    "核对模型名后重试": "Check the model name and retry",
+    "API 格式误选了 Responses": "API format was set to Responses by mistake",
+    "改为 Chat Completions": "Switch to Chat Completions",
+    "本程序未启动，或端口不对": "This app isn't running, or the port is wrong",
+    "启动本程序，核对设置页端口": "Start the app and check the port on the Settings page",
+    "命令行测试": "Test from terminal",
+    "<你的密钥>": "<your-key>",
+    "复制": "Copy",
+    "API 格式": "API Format",
+    "总共花费（人民币）": "Total Cost (CNY)",
 }
 
 
