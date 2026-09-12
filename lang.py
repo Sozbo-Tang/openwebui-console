@@ -234,6 +234,7 @@ STRINGS = {
     "总共花费（人民币）": "Total Cost (CNY)",
     "上下文瘦身：工具描述截断（字符，0=关）": "Context trim: truncate tool descriptions (chars, 0=off)",
     "上下文瘦身：保留最近消息数（0=关）": "Context trim: keep last N messages (0=off)",
+    "上游未上报缓存统计": "Upstream does not report cache statistics",
 }
 
 

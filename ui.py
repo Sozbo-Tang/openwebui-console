@@ -222,9 +222,14 @@ class DashboardPage(QWidget):
         self.card_cost.delta_label.setText(lang.fmt_delta(st["cost"] - st["yesterday_cost"]))
         self.card_tok.value_label.setText(fmt_tokens(st["prompt"] + st["completion"]))
         self.card_tok.delta_label.setText(lang.fmt_io(st["prompt"], st["completion"]))
-        self.card_cache.value_label.setText(fmt_tokens(st["cached"]))
-        pct = f"{st['cached']/st['prompt']*100:.0f}%" if st["prompt"] else "—"
-        self.card_cache.delta_label.setText(lang.fmt_cache_pct(pct))
+        if st["cached"] == 0 and self.proxy.store.get_kv("upstream_reports_cache") == "1":
+            # 上游支持缓存字段但从未命中/未上报：显示"无缓存命中"而非误导性的占比
+            self.card_cache.value_label.setText(fmt_tokens(0))
+            self.card_cache.delta_label.setText(T("上游未上报缓存统计"))
+        else:
+            self.card_cache.value_label.setText(fmt_tokens(st["cached"]))
+            pct = f"{st['cached']/st['prompt']*100:.0f}%" if st["prompt"] else "—"
+            self.card_cache.delta_label.setText(lang.fmt_cache_pct(pct))
         self.card_total.value_label.setText(fmt_money(st["total_cost"]))
         self.card_total.delta_label.setText(lang.fmt_total_reqs(st["total_requests"]))
 

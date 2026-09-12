@@ -297,6 +297,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             r.close()
             u = data.get("usage") or {}
+            if "prompt_tokens_details" in u:
+                px.store.set_kv("upstream_reports_cache", "1")
             self._record(px, key_row, requested, real_model, effort,
                          prompt=u.get("prompt_tokens") or 0,
                          cached=((u.get("prompt_tokens_details") or {})
@@ -378,11 +380,13 @@ class Handler(BaseHTTPRequestHandler):
                         if payload == "[DONE]":
                             done = True
                             break
-                        try:
-                            d = json.loads(payload)
-                            if d.get("usage"):
-                                usage = d["usage"]
-                        except Exception:
+                    try:
+                        d = json.loads(payload)
+                        if d.get("usage"):
+                            usage = d["usage"]
+                            if "prompt_tokens_details" in usage:
+                                px.store.set_kv("upstream_reports_cache", "1")
+                    except Exception:
                             pass
             except (BrokenPipeError, ConnectionResetError):
                 broken = "客户端断开"
