@@ -174,6 +174,13 @@ STRINGS = {
     "森林绿": "Forest Green",
     "琥珀橙": "Amber Orange",
     "暗夜紫": "Midnight Purple",
+    # 密钥复制
+    "点击复制完整密钥（可多次）": "Click to copy the full key (repeatable)",
+    "已复制 ✓": "Copied ✓",
+    "复制到剪贴板": "Copy to Clipboard",
+    "完成": "Done",
+    "密钥已生成，点击下方复制；之后也可随时在列表里点击密钥再次复制":
+        "Key generated, click below to copy; you can also click it in the list anytime",
 }
 
 

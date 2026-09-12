@@ -7,7 +7,7 @@ import os
 
 from PySide6.QtCore import Qt, QTimer, Signal, QObject, QEvent, QPoint
 from PySide6.QtCore import QRect
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QListWidget, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem,
@@ -355,7 +355,13 @@ class KeysPage(QWidget):
             row = self.table.rowCount()
             self.table.insertRow(row)
             self.table.setItem(row, 0, readonly_item(k["name"]))
-            self.table.setItem(row, 1, readonly_item(k["key"][:9] + "…" + k["key"][-4:]))
+            kb = QPushButton(k["key"][:9] + "…" + k["key"][-4:])
+            kb.setProperty("ghost", True)
+            kb.setToolTip(T("点击复制完整密钥（可多次）"))
+            kb.setCursor(Qt.PointingHandCursor)
+            f = QFont("Menlo"); f.setPointSize(11); kb.setFont(f)
+            kb.clicked.connect(lambda _, kk=k["key"], b=kb: self.copy_text(b, kk))
+            self.table.setCellWidget(row, 1, kb)
             self.table.setItem(row, 2, readonly_item(k["created_at"]))
             self.table.setItem(row, 3, readonly_item(str(k["today_requests"])))
             self.table.setItem(row, 4, readonly_item(fmt_tokens(k["today_prompt"])))
@@ -383,10 +389,35 @@ class KeysPage(QWidget):
         if dlg.exec() != QDialog.Accepted or not name.text().strip():
             return
         k = self.store.create_key(name.text().strip())
-        QMessageBox.information(
-            self, T("密钥已生成"),
-            f"{T('名称')}：{k['name']}\n\n{k['key']}\n\n{T('密钥只完整显示这一次，请立即复制保存。')}")
+        dlg = QDialog(self)
+        dlg.setWindowTitle(T("密钥已生成"))
+        v = DV(dlg)
+        t = QLabel(T("密钥已生成，点击下方复制；之后也可随时在列表里点击密钥再次复制"))
+        t.setObjectName("DialogSub")
+        v.addWidget(t)
+        nm = QLabel(f"{T('名称')}：{k['name']}")
+        v.addWidget(nm)
+        key_edit = QLineEdit(k["key"])
+        key_edit.setReadOnly(True)
+        kf = QFont("Menlo"); kf.setPointSize(12); key_edit.setFont(kf)
+        v.addWidget(key_edit)
+        btns = DH(); btns.setSpacing(10)
+        btns.addStretch(1)
+        cp = QPushButton(T("复制到剪贴板"))
+        cp.clicked.connect(lambda _, b=cp: self.copy_text(b, k["key"]))
+        done = QPushButton(T("完成"))
+        done.clicked.connect(dlg.accept)
+        btns.addWidget(cp); btns.addWidget(done)
+        v.addLayout(btns)
+        dlg.resize(520, 150)
+        dlg.exec()
         self.refresh()
+
+    def copy_text(self, btn: QPushButton, text: str):
+        QApplication.clipboard().setText(text)
+        old = btn.text()
+        btn.setText(T("已复制 ✓"))
+        QTimer.singleShot(1200, lambda: btn.setText(old))
 
     def revoke(self, key_id, name):
         if QMessageBox.question(
