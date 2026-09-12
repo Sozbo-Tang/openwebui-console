@@ -24,6 +24,7 @@ def build_qss(p: dict, card_alpha=None, table_alpha=None, input_alpha=None):
 * {{ font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
     font-size: 13px; color: {p['text']}; }}
 QMainWindow, QWidget {{ background: {p['bg']}; }}
+QLabel {{ background: transparent; }}
 QToolTip {{ background: {p['panel']}; color: {p['text']};
   border: 1px solid {p['border']}; }}
 

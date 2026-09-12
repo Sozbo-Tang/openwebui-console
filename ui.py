@@ -50,12 +50,19 @@ def fmt_tokens(n):
 
 
 class DownCombo(QComboBox):
-    """下拉列表始终从控件下方弹出（Qt 在空间不足时会向上翻）。"""
+    """下拉列表固定从控件正下方弹出、从第一项开始显示。
+    延迟一拍再定位：Qt 自己的事件过滤器会在 show 时重新定位弹窗，
+    立即移动会被它覆盖（macOS 上尤其明显）。"""
     def showPopup(self):
         super().showPopup()
+        QTimer.singleShot(0, self._place_popup)
+
+    def _place_popup(self):
         popup = self.view().window()
-        if popup:
-            popup.move(self.mapToGlobal(QPoint(0, self.height() + 2)))
+        if not popup:
+            return
+        popup.move(self.mapToGlobal(QPoint(0, self.height() + 2)))
+        self.view().scrollToTop()
 
 
 def pill(text, kind="g"):
