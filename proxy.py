@@ -12,7 +12,7 @@ import requests
 
 import auth
 from core import (EFFORT_LEVELS, Store, calc_cost, now_str,
-                         resolve_effort, slim_context)
+                         resolve_effort, slim_context, slim_images)
 
 CHUNK_EXCEPTIONS = (requests.exceptions.ChunkedEncodingError,
                     requests.exceptions.ConnectionError)
@@ -254,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
             effort = store.get_level(base or requested)  # None = 后端默认
         real_model = base if base else requested
 
-        fwd = slim_context(dict(body), store)
+        fwd = slim_images(slim_context(dict(body), store), store)
         fwd["model"] = real_model
         if effort:
             fwd["reasoning_effort"] = effort

@@ -759,6 +759,9 @@ class SettingsPage(QWidget):
         gen.addWidget(QLabel(T("上下文瘦身：保留最近消息数（0=关）")))
         self.ctx_max_history = QLineEdit(self.store.get_kv("ctx_max_history"))
         self.ctx_max_history.setFixedWidth(70); gen.addWidget(self.ctx_max_history)
+        gen.addWidget(QLabel(T("单请求图片上限（默认 16）")))
+        self.max_images = QLineEdit(self.store.get_kv("max_images"))
+        self.max_images.setFixedWidth(70); gen.addWidget(self.max_images)
         b_gen = QPushButton(T("保存并生效")); b_gen.setProperty("ghost", True)
         b_gen.clicked.connect(self.save_general)
         gen.addWidget(b_gen)
@@ -876,6 +879,8 @@ class SettingsPage(QWidget):
                               str(int(self.ctx_tool_desc.text().strip() or "0")))
             self.store.set_kv("ctx_max_history",
                               str(int(self.ctx_max_history.text().strip() or "0")))
+            self.store.set_kv("max_images",
+                              str(int(self.max_images.text().strip() or "16")))
         except ValueError:
             pass
         QMessageBox.information(

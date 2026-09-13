@@ -34,7 +34,35 @@ DEFAULTS = {
     "bg_image": "",                         # 背景图片路径（JPEG）
     "ctx_tool_desc": "0",                   # 工具描述截断到 N 字符；0=不裁剪
     "ctx_max_history": "0",                 # 只保留最近 N 条非 system 消息；0=不裁剪
+    "max_images": "16",                     # 单次请求最多保留的图片数（超出裁掉最旧的）
 }
+
+
+def slim_images(body: dict, store) -> dict:
+    """裁剪消息里的图片到上游上限：保留最近 N 张，更早的替换为文字占位符。
+    兼容 OpenAI（image_url / input_image）与 Anthropic（image）两种块格式。
+    会话历史会不断堆积截图，超出模型上限（如 GLM 16 张）会被上游 400 拒绝。"""
+    try:
+        max_images = int(store.get_kv("max_images") or 16)
+    except ValueError:
+        max_images = 16
+    if max_images <= 0:
+        return body
+    IMAGE_TYPES = ("image_url", "image", "input_image")
+    spots = []
+    for m in body.get("messages", []):
+        c = m.get("content")
+        if not isinstance(c, list):
+            continue
+        for i, part in enumerate(c):
+            if isinstance(part, dict) and part.get("type") in IMAGE_TYPES:
+                spots.append((m, i))
+    if len(spots) <= max_images:
+        return body
+    for m, i in spots[:-max_images]:
+        m["content"][i] = {"type": "text",
+                           "text": "[Earlier image removed to fit the model's image limit]"}
+    return body
 
 
 def slim_context(body: dict, store) -> dict:
