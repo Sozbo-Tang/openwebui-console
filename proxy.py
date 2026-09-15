@@ -445,6 +445,10 @@ class Handler(BaseHTTPRequestHandler):
         }
         px.store.log_request(**rec)
         rec["key_name"] = key_row["name"] if key_row else "（无 key）"
+        if status == 200 and px.state in ("backend_down", "bad_creds"):
+            # 上游恢复正常后清除过时的故障状态（backend_down/bad_creds
+            # 只在遇到对应故障时设置，成功请求应复位）
+            px.set_state("ok", "")
         if px.on_request:
             try:
                 px.on_request(rec)
